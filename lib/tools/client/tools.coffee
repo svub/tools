@@ -15,4 +15,6 @@ u.alert = (message, type = 'info', delay = 6000) ->
 u.alert.warning = (message) -> u.alert message, 'warning'
 u.alert.error = (message) -> u.alert message, 'danger', 8000
 u.alert.success = (message) -> u.alert message, 'success'
-
+u.events = (e, map) ->
+	for type, fn of map
+		if fn? then e.on type, fn

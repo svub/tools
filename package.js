@@ -9,7 +9,7 @@ Package.on_use(function (api, where) {
 
   api.add_files('lib/tools/server/voting.coffee', 'server');
   
-  api.use(['check', 'underscore', 'moment', 'coffeescript', 'collection-behaviours', 'underscore-string-latest', 'meteor', 'ejson', 'mongo-livedata', 'deps'], where);
+  api.use(['check', 'underscore', 'moment', 'coffeescript', 'collection-behaviours', 'underscore-string-latest', 'meteor', 'templating', 'ejson', 'mongo-livedata', 'deps'], common);
   api.add_files('lib/tools/constants.coffee', common);
   api.add_files('lib/tools/tools.coffee', common);
   api.add_files('lib/tools/permissions.coffee', common);
@@ -17,11 +17,17 @@ Package.on_use(function (api, where) {
   
   api.add_files('lib/tools/server/policy.coffee', 'server');
   
-  api.use(['bootstrap-growl', 'minimongo'], 'client');  
-  api.add_files('lib/tools/client/typeahead.css', 'client');
-  api.add_files('lib/tools/client/typeahead.js', 'client');
+  api.use(['bootstrap-growl', 'minimongo', 'less', 'bootstrap3-less'], 'client');  
+  //api.add_files('lib/tools/client/typeahead.0.9.3.css', 'client');
+  //api.add_files('lib/tools/client/typeahead.0.9.3.js', 'client');
+  //api.add_files('lib/tools/client/typeahead.0.10.2.css', 'client');
+  api.add_files('lib/tools/client/typeahead.0.10.2.js', 'client');
   api.add_files('lib/tools/client/bootstrap-datetimepicker.min.css', 'client');
   api.add_files('lib/tools/client/bootstrap-datetimepicker.js', 'client');
   api.add_files('lib/tools/client/tools.coffee', 'client');
+
+  api.add_files('lib/tools/client/map.widget.html', 'client');
+  api.add_files('lib/tools/client/map.widget.less', 'client');
+  api.add_files('lib/tools/client/map.widget.coffee', 'client');
 
 });
