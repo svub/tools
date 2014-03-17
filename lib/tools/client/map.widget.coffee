@@ -4,14 +4,20 @@ Template.mapWidget.created = ->
 Template.mapWidget.rendered = ->
 	logmr 'mw.rendered: @', @
 	if @controller? then @controller.setData @data
-	else @controller = new MapController @firstNode, @data
+	else
+		container = $ @find '.map-widget' # @firstNode
+		@controller = new MapController container, @data
+		container.data 'mapController', @controller
+	#@controller = new MapController @firstNode, @data
 
 class MapController
-	constructor: (@contrainer, @data) ->
+	constructor: (@container, @data) ->
 		@m = {}
 		@wait = 100
 		@minDistance = 1000
 		@maxDistance = 500000
+		@container = $ @container
+		@doInit = _.once => @_doInit()
 		log 'mw.c...'
 		if @data.autoInit ? true then @setData @data
 
@@ -26,14 +32,15 @@ class MapController
 		@container.attr 'style', @data.style?.container
 		@c.map.attr 'style', @data.style?.mapContainer
 		@d.map.attr 'style', @data.style?.map
+
 		if @s.marker ? true then @m.marker.addTo @m.map
 		else @m.map.removeLayer @m.marker
 		@setLocation()
 
 	setDistance: (d) ->
 		d ?= if (l = @data.location)? then Math.round (u.l.distanceInMeters l.northEast, l.southWest)/2 else @minDistance
-		@d.distance.val Math.round d/1000
-	getDistance: -> Math.min @maxDistance, 1000*parseFloat @d.distance.val()
+		@d.distance.val Math.round (between d, @minDistance, @maxDistance)/1000
+	getDistance: -> between (unlessNaN (1000*parseFloat @d.distance.val()), @minDistance), @minDistance, @maxDistance
 
 	setLocation: (location = @data.location, moveInView = false, calculateDistance = true) ->
 		@data.location = location
@@ -47,6 +54,8 @@ class MapController
 		if latLng? then @m.marker.setLatLng latLng
 		else latLng = @m.marker.getLatLng()
 		@updateRectangle moveInView
+		@enrichLocation latLng
+	enrichLocation: throttle 150, (latLng = @m.marker.getLatLng()) ->
 		u.l.createFromPoint latLng.lat, latLng.lng, @getDistance(), (location) =>
 			@setLocation location, false, false
 
@@ -62,9 +71,9 @@ class MapController
 			if moveInView or boundsMuchBigger then @m.map.fitBounds(bounds)
 			else @m.map.panTo u.l.getCenter bounds
 
-	updateSearch: _.debounce (->
+	updateSearch: debounce 300, ->
 		# u.w.setTypeaheadQuery @d.search, (@data.location?.label ? '')), 300
-		@m.search.setValue (@data.location?.label ? '')), 300
+		@m.search.setValue (@data.location?.label ? '')
 
 	plotMarkers: ->
 		if @m.markers?.length
@@ -85,7 +94,7 @@ class MapController
 		marker.addTo map
 		marker
 
-	distanceChanged: -> @moveLocation true
+	distanceChanged: throttle 50, -> @moveLocation true
 	mapClicked: (event) ->
 		n=(b=@m.map.getBounds()).getNorth();s=b.getSouth();w=b.getWest();e=b.getEast()
 		width = u.l.distanceInMeters n, e, n, w
@@ -97,7 +106,10 @@ class MapController
 		u.x.currentLocation (location) =>
 			@setLocation location, true
 			@d.geoLocation.removeClass 'active'
-	notify: _.debounce (-> @data.onChange @data.location, @getDistance()), 300
+	notify: debounce 300, ->
+		if (l = @data.location)?
+			[l.northEast, l.southWest] = u.l.createBoundingBox(l.coordinates[0], l.coordinates[1], distance = @getDistance(), true)
+		@data.onChange l, distance
 
 	init: (done) ->
 		log 'mw.c.init...'
@@ -110,7 +122,7 @@ class MapController
 		logmr 'mw.c.init: done', @
 		done()
 
-	doInit: _.once ->
+	_doInit: -> # seems to run in once for the class, not once per instance > moved once to constructor_.once ->
 		# TODO initv2: remove once; instead, add and remove components as configured
 		log 'mw.c.doInit...'
 		# get references
@@ -126,8 +138,8 @@ class MapController
 		# init leaflet map and layers
 		# logmr 'mw.c.doInit: search', @m.search = u.w.createLocationTypeahead @d.search, @data.location?.label, ((event, location) => @setLocation location, true), => @data.location
 		logmr 'mw.c.doInit: search', @m.search = u.w.createLocationTypeahead2 @d.search, ((event, location) => @setLocation location, true), => @data.location
-		unless @d.map?.length then @d.map = ($ '<div class="map"></div>').attachTo @c.map
-		unless (@d.map.data 'leafletMap')?
+		unless @d.map?.length then logmr 'mw.c.doInit: .map not found', @c.map.empty().append(@d.map = $ '<div class="map"></div>')
+		unless (@m.map = @d.map.data 'leafletMap')?
 			@m.map = map = L.map @d.map[0],
 				center: @data.location?.coordinates ? [0,0]
 				zoom: 13
@@ -138,6 +150,7 @@ class MapController
 			@m.marker = L.marker [0, 0], title: 'current location'
 
 		# hook up event handlers
+		#@d.distance.on 'change', => @distanceChanged()
 		@d.distance.on 'change', => @distanceChanged()
 		@m.map.on 'click', (e) => @mapClicked e
 		@d.geoLocation.on 'click', => @geoLocationClicked()

@@ -110,6 +110,12 @@ u.loge = @loge = (e) =>
 
 ### helpers ###########################################################################################################
 
+@debounce = (time, fn) -> _.debounce fn, time
+@throttle = (time, fn) -> _.throttle fn, time
+@between = (value, min, max) -> Math.max min, Math.min max, value
+@parseIntOr = (value, otherwise) -> unlessNaN (parseInt value), otherwise
+@parseFloatOr = (value, otherwise) -> unlessNaN (parseFloat value), otherwise
+@unlessNaN = (value, otherwise) -> unless _.isNaN value then value else otherwise
 @doAndReturnIf = (data, fn) -> doAndReturn data, -> fn data if data?
 @doAndReturn = (data, fn) ->
 	fn data
@@ -145,7 +151,7 @@ u.notEmpty = @notEmpty = (stringOrArray, toBeRemoved...) ->
 		if o.length > 0 then o else null
 	else null
 u.removeAll = (stringOrArray, toBeRemoved...) ->
-	# if toBeRemoved? and toBeRemoved.length > 0 and _.isArray toBeRemoved[0] then toBeRemoved = toBeRemoved[0]
+	unless stringOrArray?.length then return stringOrArray
 	toBeRemoved = _.flatten toBeRemoved
 	if _.isArray stringOrArray then _.without stringOrArray, toBeRemoved
 	else for remove in toBeRemoved
@@ -314,7 +320,7 @@ _.extend u.l,
 		# bb = if (bb = data.boundingbox)? then [bb[3], bb[1], bb[2], bb[0]] else u.l.createBoundingBox data.lat, data.lon, u.l.minRadius
 		bb = if (bb = data.boundingbox)? then [bb[1], bb[3], bb[0], bb[2]] else u.l.createBoundingBox data.lat, data.lon, u.l.minRadius
 		l = u.l.create data.display_name, bb, data.lat, data.lon
-		l.tokens = u.removeAll(l.label, ',', ';').split(' ')
+		l.tokens = u.removeAll(l.label, ',', ';')?.split(' ') ? []
 		l # logm 'u.l.createFromOsmData', l
 
 	createFromJavascriptApi: (data, callback) ->

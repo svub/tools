@@ -1,7 +1,8 @@
 <template name="mapWidget">
+	{{#constant }}
 	<div class="map-widget">
 		<div class="search-container input-group">
-			<input autocomplete="off" id="map-location" placeholder="Where?" title="Where?" data-placement="top" class="form-control search" type="text">
+			<input autocomplete="off" id="map-location" placeholder="Search for a location..." title="Where?" data-placement="top" class="form-control search" type="text">
 			<span class="input-group-btn">
 				<button class="btn btn-default geo-location current-location" type="button" title="Use my current location"><i></i></button>
 			</span>
@@ -14,4 +15,5 @@
 			<div class="map"></div>
 		</div>
 	</div>
+	{{/constant }}
 </template>

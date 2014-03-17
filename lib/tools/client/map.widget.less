@@ -10,6 +10,8 @@
 	.map-container {
 		position:relative;
 		min-width:15em; min-height:10em; width: 100%;
-		.map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+		.map { position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+			.leaflet-control-container .leaflet-top { z-index: initial; }
+		}
 	}
 }
