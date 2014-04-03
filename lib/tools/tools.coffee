@@ -33,7 +33,7 @@ Array.prototype.pushAll = (array) ->
 #		if all?.length > 0 then array.push obj for obj in all
 #		array
 
-u.addCommonMethods = (object, collection, showRoute, getLabel) -> _.extend object,
+u.addCommonMethods = (object, collection, defaultRoute, getLabel) -> _.extend object,
 	get: (id) -> if _.isString id then collection.findOne { _id: id } else id
 	findAll: (ids) ->
 		try
@@ -41,12 +41,12 @@ u.addCommonMethods = (object, collection, showRoute, getLabel) -> _.extend objec
 			else Meteor.Collection.prototype.findAll.apply collection, [ids]
 		catch e
 			loge e
-	getAll: (ids) -> @findAll(ids)?.fetch()
+	getAll: (ids) -> if isEmpty ids then [] else @findAll(ids)?.fetch()
 	label: (obj) -> getLabel obj
-	url: (obj) -> Router.url showRoute, @get obj
-	link: (obj) ->
+	url: (obj, route = defaultRoute) -> Router.url route, @get obj
+	link: (obj, route = defaultRoute, label) ->
 		obj = @get obj
-		"<a href=\"#{@url obj}\">#{@label obj}</a>"
+		"<a href=\"#{@url obj, route}\">#{label ? @label obj}</a>"
 
 ### logging ###########################################################################################################
 
@@ -238,9 +238,11 @@ _.extend u.l,
 	minRadius: 1000 # 1km
 	maxRadius: 500000 # 500km
 	serialize: (location) ->
-		if not location? then '_' else (if typeof location == 'String' then location
-		# else location.label+';'+location.northEast[0]+','+location.northEast[1]+','+location.southWest[0]+','+location.southWest[1])
-		else "#{location.label};#{location.northEast[0]},#{location.northEast[1]},#{location.southWest[0]},#{location.southWest[1]}")
+		if not location? or location is false then '_'
+		else
+			sanitize = (label) -> removeAll label, '/' , '\\', ':', '?'
+			if typeof location == 'String' then sanitize location
+			else "#{sanitize location.label};#{location.northEast[0]},#{location.northEast[1]},#{location.southWest[0]},#{location.southWest[1]}"
 
 	getCurrentLocation: -> Session.get 'u_geo-location'
 
@@ -492,8 +494,11 @@ _.extend u.x,
 
 		reverse: (lat, lng, callback) ->
 			url = "http://nominatim.openstreetmap.org/reverse?format=json&lat=#{lat}&lon=#{lng}"
-			$.ajax (logmr 'u.x.osmReverse: request URL', url),
-				success: (data) -> callback(logmr 'u.x.osm: data', data)
+			$.ajax (logmr 'u.x.osm.reverse: request URL', url),
+				success: (data) -> callback logmr 'u.x.osm.reverse: data', data
+				error: (x, s, e) ->
+					logmr "u.x.osm.reverse: status=#{s}; failed", e
+					callback false
 
 	getLocation: (query, callback) ->
 		u.x.osm.find { q: query, limit: 5, addressdetails: 0 }, (data) ->

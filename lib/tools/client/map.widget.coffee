@@ -35,7 +35,8 @@ class MapController
 
 		if @s.marker ? true then @m.marker.addTo @m.map
 		else @m.map.removeLayer @m.marker
-		@setLocation()
+		@updateLocation()
+		later => @plotMarkers()
 
 	setDistance: (d) ->
 		d ?= if (l = @data.location)? then Math.round (u.l.distanceInMeters l.northEast, l.southWest)/2 else @minDistance
@@ -44,18 +45,20 @@ class MapController
 
 	setLocation: (location = @data.location, moveInView = false, calculateDistance = true) ->
 		@data.location = location
+		@updateLocation moveInView, calculateDistance, true
+	updateLocation: (moveInView = false, calculateDistance = true, notify = false) ->
 		if calculateDistance then @setDistance()
-		@m.marker.setLatLng location?.coordinates ? [0,0]
+		@m.marker.setLatLng @data.location?.coordinates ? [0,0]
 		@updateRectangle moveInView
 		@updateSearch()
-		@notify()
+		if notify then @notify()
 	moveLocation: (latLng, moveInView = false) ->
 		if _.isBoolean latLng then [latLng, moveInView] = [undefined, latLng]
 		if latLng? then @m.marker.setLatLng latLng
 		else latLng = @m.marker.getLatLng()
 		@updateRectangle moveInView
 		@enrichLocation latLng
-	enrichLocation: throttle 150, (latLng = @m.marker.getLatLng()) ->
+	enrichLocation: throttle 300, (latLng = @m.marker.getLatLng()) ->
 		u.l.createFromPoint latLng.lat, latLng.lng, @getDistance(), (location) =>
 			@setLocation location, false, false
 
@@ -73,7 +76,7 @@ class MapController
 
 	updateSearch: debounce 300, ->
 		# u.w.setTypeaheadQuery @d.search, (@data.location?.label ? '')), 300
-		@m.search.setValue (@data.location?.label ? '')
+		@m.search.setValue @data.location
 
 	plotMarkers: ->
 		if @m.markers?.length
@@ -91,10 +94,10 @@ class MapController
 			icon: icon
 			title: def.label
 		u.events marker, def.events
-		marker.addTo map
+		marker.addTo @m.map
 		marker
 
-	distanceChanged: throttle 50, -> @moveLocation true
+	distanceChanged: throttle 100, -> @moveLocation true
 	mapClicked: (event) ->
 		n=(b=@m.map.getBounds()).getNorth();s=b.getSouth();w=b.getWest();e=b.getEast()
 		width = u.l.distanceInMeters n, e, n, w
@@ -106,7 +109,7 @@ class MapController
 		u.x.currentLocation (location) =>
 			@setLocation location, true
 			@d.geoLocation.removeClass 'active'
-	notify: debounce 300, ->
+	notify: debounce 500, -> if @data.onChange?
 		if (l = @data.location)?
 			[l.northEast, l.southWest] = u.l.createBoundingBox(l.coordinates[0], l.coordinates[1], distance = @getDistance(), true)
 		@data.onChange l, distance
