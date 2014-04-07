@@ -3,25 +3,37 @@ Template.mapWidget.created = ->
 	log 'mw.created...'
 Template.mapWidget.rendered = ->
 	logmr 'mw.rendered: @', @
-	if @controller? then @controller.setData @data
-	else
-		container = $ @find '.map-widget' # @firstNode
-		@controller = new MapController container, @data
-		container.data 'mapController', @controller
-	#@controller = new MapController @firstNode, @data
+	# meteor < v.8 (before blaze)
+	#	if @controller? then @controller.setData @data
+	#	else
+	#		container = $ @find '.map-widget' # @firstNode
+	#		@controller = new MapController container, @data
+	#		container.data 'mapController', @controller
+	container = $ @find '.map-widget' # @firstNode
+	unless _.isFunction d = @data then @data = -> d
+	@controller = new MapController container, @data
+	container.data 'mapController', @controller
+	
 
 class MapController
-	constructor: (@container, @data) ->
+	constructor: (@container, @dataSource) ->
+		@c=0
 		@m = {}
 		@wait = 100
 		@minDistance = 1000
+		@defaultDistance = 1000
 		@maxDistance = 500000
 		@container = $ @container
 		@doInit = _.once => @_doInit()
 		log 'mw.c...'
-		if @data.autoInit ? true then @setData @data
+		if (d = @dataSource()).autoInit ? true then @setData d
+		Deps.autorun =>
+			log 'mw ### reactive update'
+			@setData @dataSource()
 
-	setData: (@data) -> @init =>
+	setData: (newData) -> unless EJSON.equals newData, @data = newData then @init =>
+		return if @c++ > 30
+		@doNotify = false
 		logmr 'mw.c.setData', @data
 		@s = @data.show ? all: true
 		# TODO initv2: instead of showing and hiding, remove and add components in init method
@@ -36,10 +48,12 @@ class MapController
 		if @s.marker ? true then @m.marker.addTo @m.map
 		else @m.map.removeLayer @m.marker
 		@updateLocation()
-		later => @plotMarkers()
+		later =>
+			@plotMarkers()
+			later 50, => @doNotify = true
 
 	setDistance: (d) ->
-		d ?= if (l = @data.location)? then Math.round (u.l.distanceInMeters l.northEast, l.southWest)/2 else @minDistance
+		d ?= if (l = @data.location)? then Math.round (u.l.distanceInMeters l.northEast, l.southWest)/2 else @defaultDistance
 		@d.distance.val Math.round (between d, @minDistance, @maxDistance)/1000
 	getDistance: -> between (unlessNaN (1000*parseFloat @d.distance.val()), @minDistance), @minDistance, @maxDistance
 
@@ -79,6 +93,7 @@ class MapController
 		@m.search.setValue @data.location
 
 	plotMarkers: ->
+		log "mw.plotMarkers: #markers=#{@data.markers?.length}"
 		if @m.markers?.length
 			@m.map.removeLayer m for m in @m.markers
 		@m.markers = unless @data.markers?.length then []
@@ -109,7 +124,8 @@ class MapController
 		u.x.currentLocation (location) =>
 			@setLocation location, true
 			@d.geoLocation.removeClass 'active'
-	notify: debounce 500, -> if @data.onChange?
+	notify: -> if @doNotify and @data.onChange? then @runNotify()
+	runNotify: debounce 500, ->
 		if (l = @data.location)?
 			[l.northEast, l.southWest] = u.l.createBoundingBox(l.coordinates[0], l.coordinates[1], distance = @getDistance(), true)
 		@data.onChange l, distance

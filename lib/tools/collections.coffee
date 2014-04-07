@@ -83,6 +83,7 @@ Meteor.Collection.prototype.getAll = (ids) ->
 	try @findAll(ids).fetch() catch
 		return []
 
+@searches = u.searches = new Meteor.Collection 'searches' # recent, most popular searches
 collections = []
 collections.push @activities  = u.activities  = new Meteor.Collection 'activities'
 collections.push @types       = u.types       = new Meteor.Collection 'types'

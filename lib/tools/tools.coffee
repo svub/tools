@@ -240,9 +240,10 @@ _.extend u.l,
 	serialize: (location) ->
 		if not location? or location is false then '_'
 		else
-			sanitize = (label) -> removeAll label, '/' , '\\', ':', '?'
+			trim = (value) -> value.toPrecision 6
+			sanitize = (label) -> u.removeAll label, '/' , '\\', ':', '?'
 			if typeof location == 'String' then sanitize location
-			else "#{sanitize location.label};#{location.northEast[0]},#{location.northEast[1]},#{location.southWest[0]},#{location.southWest[1]}"
+			else "#{sanitize location.label};#{trim location.northEast[0]},#{trim location.northEast[1]},#{trim location.southWest[0]},#{trim location.southWest[1]}"
 
 	getCurrentLocation: -> Session.get 'u_geo-location'
 
