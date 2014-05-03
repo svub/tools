@@ -5,6 +5,10 @@ Meteor.startup ->
   BrowserPolicy.content.allowScriptOrigin 'http://cdn.leafletjs.com/leaflet-0.7.2/leaflet.js'
   BrowserPolicy.content.allowStyleOrigin 'http://cdn.leafletjs.com/leaflet-0.7.2/leaflet.css'
   BrowserPolicy.content.allowOriginForAll 'cdn.leafletjs.com'
+
+  # shareit package
+  BrowserPolicy.content.allowScriptOrigin 'https://platform.twitter.com/widgets.js'
+  BrowserPolicy.content.allowScriptOrigin 'http://connect.facebook.net/en_US/all.js'
   
   # Google font for headings
   BrowserPolicy.content.allowStyleOrigin 'http://fonts.googleapis.com/css'

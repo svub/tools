@@ -1,14 +1,4 @@
-log "mw.init: client=#{Meteor.isClient}"
-Template.mapWidget.created = ->
-	log 'mw.created...'
 Template.mapWidget.rendered = ->
-	logmr 'mw.rendered: @', @
-	# meteor < v.8 (before blaze)
-	#	if @controller? then @controller.setData @data
-	#	else
-	#		container = $ @find '.map-widget' # @firstNode
-	#		@controller = new MapController container, @data
-	#		container.data 'mapController', @controller
 	container = $ @find '.map-widget' # @firstNode
 	unless _.isFunction d = @data then @data = -> d
 	@controller = new MapController container, @data
@@ -17,24 +7,20 @@ Template.mapWidget.rendered = ->
 
 class MapController
 	constructor: (@container, @dataSource) ->
-		@c=0
 		@m = {}
 		@wait = 100
-		@minDistance = 1000
-		@defaultDistance = 1000
-		@maxDistance = 500000
+		@minDistance = u.l.minRadius ? 1000
+		@defaultDistance = u.l.defaultRadius ? 5000
+		@maxDistance = u.l.maxRadius ? 500000
 		@container = $ @container
 		@doInit = _.once => @_doInit()
-		log 'mw.c...'
-		if (d = @dataSource()).autoInit ? true then @setData d
+		if (d = @dataSource())?.autoInit ? true then @setData d
 		Deps.autorun =>
-			log 'mw ### reactive update'
 			@setData @dataSource()
 
-	setData: (newData) -> unless EJSON.equals newData, @data = newData then @init =>
-		return if @c++ > 30
+	setData: (newData) -> unless EJSON.equals newData, @data then @data = newData; @init =>
 		@doNotify = false
-		logmr 'mw.c.setData', @data
+		logmr 'MapWidget.setData', @data
 		@s = @data.show ? all: true
 		# TODO initv2: instead of showing and hiding, remove and add components in init method
 		@c.map.toggle      @s.all ? @s.map      ? true
@@ -53,7 +39,7 @@ class MapController
 			later 50, => @doNotify = true
 
 	setDistance: (d) ->
-		d ?= if (l = @data.location)? then Math.round (u.l.distanceInMeters l.northEast, l.southWest)/2 else @defaultDistance
+		d ?= @data.location?.distance ? @defaultDistance
 		@d.distance.val Math.round (between d, @minDistance, @maxDistance)/1000
 	getDistance: -> between (unlessNaN (1000*parseFloat @d.distance.val()), @minDistance), @minDistance, @maxDistance
 
@@ -62,40 +48,55 @@ class MapController
 		@updateLocation moveInView, calculateDistance, true
 	updateLocation: (moveInView = false, calculateDistance = true, notify = false) ->
 		if calculateDistance then @setDistance()
-		@m.marker.setLatLng @data.location?.coordinates ? [0,0]
-		@updateRectangle moveInView
+		@m.marker.setLatLng @data.location ? [0,0]
+		@updateArea moveInView
 		@updateSearch()
 		if notify then @notify()
 	moveLocation: (latLng, moveInView = false) ->
 		if _.isBoolean latLng then [latLng, moveInView] = [undefined, latLng]
 		if latLng? then @m.marker.setLatLng latLng
 		else latLng = @m.marker.getLatLng()
-		@updateRectangle moveInView
+		@updateArea moveInView
 		@enrichLocation latLng
 	enrichLocation: throttle 300, (latLng = @m.marker.getLatLng()) ->
 		u.l.createFromPoint latLng.lat, latLng.lng, @getDistance(), (location) =>
 			@setLocation location, false, false
 
-	updateRectangle: (moveInView = false) ->
-		coordinates = @m.marker.getLatLng()
-		distance = @getDistance()
-		logm "mw.c.updateRect dist=#{distance}; coordinates", coordinates
-		@m.rect.setBounds bounds = unless @data.area then [[0,0],[0,0]] else u.l.createBoundingBox(coordinates.lat, coordinates.lng, distance, true)
-		logm 'mw.c.updateRect bounds ', bounds
-		unless @m.map.getBounds().contains bounds
-			logm 'mw.c.updateRect: auto panning; also zoom', moveInView
-			boundsMuchBigger = not @m.map.getBounds().pad(2).contains(bounds)
-			if moveInView or boundsMuchBigger then @m.map.fitBounds(bounds)
-			else @m.map.panTo u.l.getCenter bounds
+	updateArea: (moveInView = false) ->
+		if @data.area
+			coordinates = @m.marker.getLatLng()
+			distance = @getDistance()
+			logm "MapWidget.updateArea areaType=#{@data.areaType}; dist=#{distance}; coordinates", coordinates
+			(if @data.areaType is 'rect' then @updateArea else @updateCircle).call @, coordinates, distance
+			@autoZoom moveInView, coordinates, distance
+		else
+			@m.map.removeLayer @m.rect
+			@m.map.removeLayer @m.circle
+	updateRectangle: (coordinates, distance) ->
+		@m.rect.setBounds bounds = u.l.createBoundingBox(coordinates.lat, coordinates.lng, distance, true)
+		@m.rect.addTo @m.map
+
+	updateCircle: (coordinates, distance) ->
+		@m.circle.setLatLng coordinates
+		@m.circle.setRadius distance
+		@m.circle.addTo @m.map
+
+	autoZoom: (zoom = false, coordinates = @m.marker.getLatLng(), distance = @getDistance()) ->
+			bounds = u.l.createBoundingBox coordinates.lat, coordinates.lng, distance*1.1, true
+			unless @m.map.getBounds().contains bounds
+				logm 'MapWidget.autoZoom: bounds', bounds
+				boundsMuchBigger = not @m.map.getBounds().pad(2).contains(bounds)
+				if zoom or boundsMuchBigger then @m.map.fitBounds(bounds)
+				#else @m.map.panTo u.l.getCenter bounds
+				else @m.map.panTo coordinates
 
 	updateSearch: debounce 300, ->
 		# u.w.setTypeaheadQuery @d.search, (@data.location?.label ? '')), 300
 		@m.search.setValue @data.location
 
 	plotMarkers: ->
-		log "mw.plotMarkers: #markers=#{@data.markers?.length}"
 		if @m.markers?.length
-			@m.map.removeLayer m for m in @m.markers
+			@m.map.removeLayer m for m in _.flatten @m.markers
 		@m.markers = unless @data.markers?.length then []
 		else @plotMarker index, def for def, index in @data.markers
 	plotMarker: (index, def) ->
@@ -105,12 +106,16 @@ class MapController
 			iconAnchor: [8.666, 29]
 			html:       markerHtml
 		($ icon).data 'placement', 'left'
-		marker = L.marker def.location.coordinates,
+		marker = L.marker def.location,
 			icon: icon
 			title: def.label
 		u.events marker, def.events
 		marker.addTo @m.map
-		marker
+		if def.area
+			circle = (L.circle def.location, def.location.distance, { color: u.activityAreaColor, stroke: false })
+			circle.addTo @m.map
+			[marker, circle]
+		else marker
 
 	distanceChanged: throttle 100, -> @moveLocation true
 	mapClicked: (event) ->
@@ -123,27 +128,22 @@ class MapController
 		@d.geoLocation.addClass 'active'
 		u.x.currentLocation (location) =>
 			@setLocation location, true
-			@d.geoLocation.removeClass 'active'
+			later 10, => @d.geoLocation.removeClass 'active'
 	notify: -> if @doNotify and @data.onChange? then @runNotify()
 	runNotify: debounce 500, ->
-		if (l = @data.location)?
-			[l.northEast, l.southWest] = u.l.createBoundingBox(l.coordinates[0], l.coordinates[1], distance = @getDistance(), true)
+		(l = @data.location)?.distance = distance = @getDistance()
 		@data.onChange l, distance
 
 	init: (done) ->
-		log 'mw.c.init...'
 		# TODO initv2: wait if map is needed only
 		unless L?
-			log 'mw.c.init: waiting to load...'
 			later (@wait*=2), => @init(done)
 			return
 		@doInit()
-		logmr 'mw.c.init: done', @
 		done()
 
 	_doInit: -> # seems to run in once for the class, not once per instance > moved once to constructor_.once ->
 		# TODO initv2: remove once; instead, add and remove components as configured
-		log 'mw.c.doInit...'
 		# get references
 		@c = # conainters
 			map: $ '.map-container', @container
@@ -155,17 +155,18 @@ class MapController
 			geoLocation: $ '.geo-location', @c.search
 			distance: $ '.distance', @c.distance
 		# init leaflet map and layers
-		# logmr 'mw.c.doInit: search', @m.search = u.w.createLocationTypeahead @d.search, @data.location?.label, ((event, location) => @setLocation location, true), => @data.location
-		logmr 'mw.c.doInit: search', @m.search = u.w.createLocationTypeahead2 @d.search, ((event, location) => @setLocation location, true), => @data.location
-		unless @d.map?.length then logmr 'mw.c.doInit: .map not found', @c.map.empty().append(@d.map = $ '<div class="map"></div>')
+		# @m.search = u.w.createLocationTypeahead @d.search, @data.location?.label, ((event, location) => @setLocation location, true), => @data.location
+		@m.search = u.w.createLocationTypeahead2 @d.search, ((event, location) => @setLocation location, true), => @data.location
+		unless @d.map?.length then @c.map.empty().append(@d.map = $ '<div class="map"></div>')
 		unless (@m.map = @d.map.data 'leafletMap')?
 			@m.map = map = L.map @d.map[0],
-				center: @data.location?.coordinates ? [0,0]
+				center: @data?.location ? [0,0]
 				zoom: 13
 			# add an OpenStreetMap tile layer
 			L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', { attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'}).addTo map
 			@d.map.data 'leafletMap', map
-			@m.rect = (L.rectangle [[0,0],[0,0]], { color: u.pickLocationRectColor, weight: 1 }).addTo map
+			@m.rect = (L.rectangle [[0,0],[0,0]], { color: u.pickLocationRectColor, weight: 1 })
+			@m.circle = (L.circle [0,0], 0, { color: u.pickLocationRectColor, weight: 1 })
 			@m.marker = L.marker [0, 0], title: 'current location'
 
 		# hook up event handlers

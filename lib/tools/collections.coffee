@@ -19,8 +19,8 @@ CollectionBehaviours.defineBehaviour 'owned', (getTransform, args) ->
 		# remove: (userId, doc) -> (doc.owner is userId) or isAdmin()
 		insert: (userId, doc) => mineOrAdmin userId, doc
 		update: (userId, doc) =>
-			logm "#{@_name}.behaviour.owned.allow.update #{EJSON.stringify doc}", mineOrAdmin userId, doc
-		remove: (userId, doc) => logm "#{@_name}.behaviour.owned.allow.remove", mineOrAdmin userId, doc
+			logm "#{@_name}.behaviour.owned.allow.update #{doc._id}", mineOrAdmin userId, doc
+		remove: (userId, doc) => logm "#{@_name}.behaviour.owned.allow.remove #{doc._id}", mineOrAdmin userId, doc
 	@deny
 		update: (userId, doc, fields, modifier) =>
 			logm "#{@_name}.behaviour.owned.deny.update", ('owner' in fields) and not isAdmin()
@@ -203,10 +203,14 @@ if Meteor.isServer
 			suggestions = find typeName
 			if suggestions?.length < 1 and typeName.indexOf ' ' > 0 then suggestions = find typeName.split(' ').join('|')
 			logm "search.types.suggest for '#{typeName}'", suggestions
-		recentTypes: -> logmr 'c.recentTypes', u.t.recent @userId
-		popularTypes: -> logmr 'c.popularTypes', u.t.popular()
-		recentActivities: -> logmr 'c.recentActivities', u.a.recent @userId
-		popularActivities: -> logmr 'c.popularActivities', u.a.popular 20, undefined
+		#recentTypes: -> logmr 'c.recentTypes', u.t.recent @userId
+		#popularTypes: -> logmr 'c.popularTypes', u.t.popular()
+		#recentActivities: -> logmr 'c.recentActivities', u.a.recent @userId
+		#popularActivities: -> logmr 'c.popularActivities', u.a.popular 20, undefined
+		recentTypes: -> u.t.recent @userId
+		popularTypes: -> u.t.popular()
+		recentActivities: -> u.a.recent @userId
+		popularActivities: -> u.a.popular 20, undefined
 
 
 if Meteor.isClient
@@ -225,13 +229,5 @@ if Meteor.isClient
 	u.flaggedTypes      = new Meteor.Collection 'flaggedTypes'
 	u.flaggedActivities = new Meteor.Collection 'flaggedActivities'
 
-# if Meteor.isClient
-	# # make collections globally visible
-	# console.log 'collections loaded.'
-	# window.activities = activities
-	# window.types      = types
-	# window.messages   = messages
-
 # if Meteor.isServer
-	# console.log (k for k of activities)
 	# activities.ensureIndex( { type: 1, location: "2dsphere", date: 1, }, { name: "umeedoo.search-index" } )
