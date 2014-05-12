@@ -20,6 +20,7 @@ u.events = (e, map) ->
 		if fn? then e.on type, fn
 
 Meteor.callCached ?= (method, parameters...) ->
+	# TODO JSON.stringify parameters and add to sessionKey?
 	sessionKey = "callCache_#{method}"
 	(Session.get sessionKey) ? Meteor.apply method, parameters, (error, data) ->
 		Session.set sessionKey, if error? then undefined else data

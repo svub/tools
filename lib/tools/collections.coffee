@@ -29,6 +29,19 @@ CollectionBehaviours.defineBehaviour 'rememberLastUpdater', (getTransform, args)
 	@before.insert (userId, doc) -> doc.lastUpdatedBy = userId
 	@before.update (userId, doc, fieldNames, modifier, options) -> (modifier.$set ?= {}).lastUpdatedBy = userId
 
+CollectionBehaviours.defineBehaviour 'indexLocation', (getTransform, args) ->
+	propertyValue = if _.isString(propertyName = x = (asArray args)[0]) then (obj) -> obj[x] else x
+	propertyIndex = args[1] ? "#{propertyName}Index"
+	check propertyValue, Function; check propertyIndex, String
+	#logmr 's.c.beh.indexLocation: this.ensureIndex', @_ensureIndex
+	if Meteor.isServer then @_ensureIndex properyName: '2dsphere'
+	createLocationIndex = (object) -> if (l = propertyValue object)?
+		object[propertyIndex] = type: 'Point', coordinates: [l.lng ? 0, l.lat ? 0]
+	@before.insert (userId, doc) -> createLocationIndex doc
+	@before.update (userId, doc, fieldNames, modifier, options) ->
+		if (index = createLocationIndex doc)? then (modifier.$set ?= {})[propertyIndex] = index
+		else (modifier.$unset ?= {})[propertyIndex] = true
+
 CollectionBehaviours.defineBehaviour 'noDelete', (getTransform, args) ->
 	isAdmin = -> Roles? and Roles.userIsInRole Meteor.user(), 'admin'
 	@allow crudAllow
@@ -88,12 +101,15 @@ collections = []
 collections.push @activities  = u.activities  = new Meteor.Collection 'activities'
 collections.push @types       = u.types       = new Meteor.Collection 'types'
 collections.push @messages    = u.messages    = new Meteor.Collection 'messages'
-copyUsers = -> collections.push @users = u.users = Meteor.users
-if Meteor.users? then copyUsers() else Meteor.startup copyUsers
+initUsers = =>
+	collections.push @users = u.users = Meteor.users
+	u.users.indexLocation ((user) -> user?.profile?.homeLocation), 'homeLocationIndex'
+if Meteor.users? then initUsers() else Meteor.startup initUsers
 
 collection.allow crudAllow for collection in collections # first, allow anything
 u.activities.owned()
 u.activities.timestampable()
+u.activities.indexLocation 'location'
 u.messages.owned()
 u.messages.timestampable()
 u.types.rememberLastUpdater()
@@ -117,16 +133,18 @@ u.types.deny
 					logmr "u.types.deny.update: lang=#{lang}, deny=#{deny}, oldLabels", oldLabels
 					logmr "u.types.deny.update: newLabels", newProfile.labels
 		logmr "u.types.deny.update: deny", deny
-if Meteor.isServer
+if Meteor.isServer then Meteor.startup ->
 	# u.flaggedTypes       = new Meteor.Collection 'flaggedTypes'
 	# u.flaggedActivities  = new Meteor.Collection 'flaggedActivities'
 	u.flaggedTypes       = new Meteor.Voting 'flaggedTypes', u.types, null, { down: 'flagged', up: 'approved' }
 	u.flaggedActivities  = new Meteor.Voting 'flaggedActivities', u.activities, null, { down: 'flagged', up: 'approved' }
 	u.userVotes          = new Meteor.Voting 'userVotes', Meteor.users
 	u.activityVotes      = new Meteor.Voting 'activityVotes', u.activities
-	u.following          = new Meteor.Voting 'following', u.users, u.users, { up: 'followers', down: 'muted', sourceListUp: 'profile.following', sourceListDown: 'profile.muted' }
-	u.joining            = new Meteor.Voting 'joining', u.activities, u.users, { up: 'joiningCount', targetListUp: 'joining' }
-	u.notifyAboutChanges = new Meteor.Voting 'notifyAboutChanges', u.activities, u.users, { targetListUp: 'notify.changes' }
+	#logmr 's.collections: set up voting: Meteor', Meteor
+	#logmr 's.collections: set up voting: Meteor.users', Meteor.users
+	u.following          = new Meteor.Voting 'following', Meteor.users, Meteor.users, { up: 'followers', down: 'muted', sourceListUp: 'profile.following', sourceListDown: 'profile.muted' }
+	u.joining            = new Meteor.Voting 'joining', u.activities, Meteor.users, { up: 'joiningCount', targetListUp: 'joining' }
+	u.notifyAboutChanges = new Meteor.Voting 'notifyAboutChanges', u.activities, Meteor.users, { targetListUp: 'notify.changes' }
 	# Meteor.publish 'activities', -> activities.find {}, { sort: { date: -1 } }
 	# Meteor.publish 'types',      -> types.find()
 	# Meteor.publish 'users',      -> Meteor.users.find()
@@ -135,7 +153,6 @@ if Meteor.isServer
 	Meteor.publish 'myFlaggedTypes', -> u.flaggedTypes.findVoted @userId
 	Meteor.publish 'myFlaggedActivities', -> u.flaggedActivities.findVoted @userId
 	Meteor.publish 'myUserVotes', -> u.userVotes.find { $or: [ { voter: @userId }, { voted: @userId } ] }
-	Meteor.publish 'chat', (contextId) -> u.messages.find { context: contextId }, { sort: { createdAt: -1 }, limit: 100 }
 	# createSuggestWrapper = (obj, label) -> { _id: (if _.isString obj then obj else obj._id), label: label }
 	limitSuggestions = { limit: u.maxSuggestions }
 	Meteor.methods
@@ -174,18 +191,22 @@ if Meteor.isServer
 		unfollow: (id) ->
 			check id, String
 			u.following.unvote @userId, id
-		join: (id) ->
+		join: (id, notifyAboutChanges = false) ->
 			check id, String
+			check notifyAboutChanges, Boolean
 			u.joining.vote @userId, logm 's.c.join', id
+			u.notifyAboutChanges.vote @userId, id if notifyAboutChanges
+			u.m.notifyAboutJoinedUser id
 		disjoin: (id) ->
 			check id, String
 			u.joining.unvote @userId, id
-		notifyAboutChanges: (id) ->
-			check id, String
-			u.notifyAboutChanges.vote @userId, id
-		stopNotifyAboutChanges: (id) ->
-			check id, String
 			u.notifyAboutChanges.unvote @userId, id
+		#notifyAboutChanges: (id) ->
+			#check id, String
+			#u.notifyAboutChanges.vote @userId, id
+		#stopNotifyAboutChanges: (id) ->
+			#check id, String
+			#u.notifyAboutChanges.unvote @userId, id
 		suggestUser: (query) ->
 			check query, String
 			logm "s.c.suggestUser for '#{query}'", (for user in (Meteor.users.find({ 'profile.name': { $regex : query, $options : 'i' } }, limitSuggestions).fetch())

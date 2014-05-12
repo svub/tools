@@ -15,6 +15,7 @@
 	maxSuggestions: 5
 	defaultLang: 'en'
 	baseUrl: 'http://umeedoo.net'
+	empty: {}
 	a: {} # activities
 	m: {} # messaging
 	s: # search
