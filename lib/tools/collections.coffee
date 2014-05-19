@@ -9,7 +9,7 @@ crudDeny =
 
 CollectionBehaviours.defineBehaviour 'owned', (getTransform, args) ->
 	isAdmin = -> Roles? and Roles.userIsInRole Meteor.user(), 'admin'
-	mineOrAdmin = (userId, doc) -> (doc.owner is userId) or isAdmin()
+	mineOrAdmin = (userId, doc) -> userId? and ((doc.owner is userId) or isAdmin())
 	@before.insert (userId, doc) => doc.owner = userId
 	@before.update (userId, doc, fieldNames, modifier, options) =>
 		if not isAdmin() then delete modifier?.$set?.owner
@@ -49,6 +49,12 @@ CollectionBehaviours.defineBehaviour 'noDelete', (getTransform, args) ->
 		remove: (userId, doc) ->
 			logm "#{@_name}.behaviour.noDelete.deny.remove", not isAdmin()
 
+CollectionBehaviours.defineBehaviour 'loggedInOnly', (getTransform, args) ->
+	isAdmin = -> Roles? and Roles.userIsInRole Meteor.user(), 'admin'
+	@allow crudAllow
+	ifNotLoggedIn = (userId) -> not userId?
+	@deny insert: ifNotLoggedIn, update: ifNotLoggedIn, remove: ifNotLoggedIn
+
 CollectionBehaviours.defineBehaviour 'requiresRole', (getTransform, args) ->
 	logmr "#{@_name}.behaviour.requiresRole: args", args
 	if _.isString args then args = [args]
@@ -83,15 +89,11 @@ Meteor.Collection.prototype.toggle = (obj, putIn) ->
 	if putIn then @putOnce obj
 	else @removeAll obj
 Meteor.Collection.prototype.findAll = (ids) ->
-	logm 'collection.getAll: ids', ids
 	if _.isString ids then ids = [ids]
-	logm 'collection.getAll: ids', ids
 	if not ids? or ids.length < 1 then return []
 	logm 'collection.getAll: ids', ids
-	if ids.length is 1 then @find { _id: ids[0] }
-	else
-		all = ({ _id : id } for id in ids)
-		@find logm "collection.getAll ids=#{ids}; query", { $or: all }
+	if ids.length is 1 then @find _id: ids[0]
+	else @find logm "collection.getAll ids=#{ids}; query", $or: (_id : id for id in ids)
 Meteor.Collection.prototype.getAll = (ids) ->
 	try @findAll(ids).fetch() catch
 		return []
@@ -101,12 +103,17 @@ collections = []
 collections.push @activities  = u.activities  = new Meteor.Collection 'activities'
 collections.push @types       = u.types       = new Meteor.Collection 'types'
 collections.push @messages    = u.messages    = new Meteor.Collection 'messages'
-initUsers = =>
+init = =>
 	collections.push @users = u.users = Meteor.users
+	collection.loggedInOnly for collection in collections # users need to be logged in do modify anything
 	u.users.indexLocation ((user) -> user?.profile?.homeLocation), 'homeLocationIndex'
-if Meteor.users? then initUsers() else Meteor.startup initUsers
+	#u.users.allow crudAllow
+	u.users.noDelete()
+	u.users.deny update: (userId, doc, fields, modifier) -> doc?._id isnt userId
 
-collection.allow crudAllow for collection in collections # first, allow anything
+if Meteor.users? then init() else Meteor.startup init
+
+#collection.allow crudAllow for collection in collections # in general, allow anything
 u.activities.owned()
 u.activities.timestampable()
 u.activities.indexLocation 'location'
@@ -133,18 +140,20 @@ u.types.deny
 					logmr "u.types.deny.update: lang=#{lang}, deny=#{deny}, oldLabels", oldLabels
 					logmr "u.types.deny.update: newLabels", newProfile.labels
 		logmr "u.types.deny.update: deny", deny
+
+# client- and server-side votings - keeping it minimal to avoid useless code on the client
+u.joiningPerType     = new Meteor.Voting 'joiningPerType', u.types, null, 'joining'
+
 if Meteor.isServer then Meteor.startup ->
-	# u.flaggedTypes       = new Meteor.Collection 'flaggedTypes'
-	# u.flaggedActivities  = new Meteor.Collection 'flaggedActivities'
 	u.flaggedTypes       = new Meteor.Voting 'flaggedTypes', u.types, null, { down: 'flagged', up: 'approved' }
 	u.flaggedActivities  = new Meteor.Voting 'flaggedActivities', u.activities, null, { down: 'flagged', up: 'approved' }
 	u.userVotes          = new Meteor.Voting 'userVotes', Meteor.users
 	u.activityVotes      = new Meteor.Voting 'activityVotes', u.activities
-	#logmr 's.collections: set up voting: Meteor', Meteor
-	#logmr 's.collections: set up voting: Meteor.users', Meteor.users
 	u.following          = new Meteor.Voting 'following', Meteor.users, Meteor.users, { up: 'followers', down: 'muted', sourceListUp: 'profile.following', sourceListDown: 'profile.muted' }
 	u.joining            = new Meteor.Voting 'joining', u.activities, Meteor.users, { up: 'joiningCount', targetListUp: 'joining' }
 	u.notifyAboutChanges = new Meteor.Voting 'notifyAboutChanges', u.activities, Meteor.users, { targetListUp: 'notify.changes' }
+	u.activitiesPerType  = new Meteor.Voting 'activitiesPerType', u.types, null, 'activities'
+
 	# Meteor.publish 'activities', -> activities.find {}, { sort: { date: -1 } }
 	# Meteor.publish 'types',      -> types.find()
 	# Meteor.publish 'users',      -> Meteor.users.find()
@@ -195,11 +204,13 @@ if Meteor.isServer then Meteor.startup ->
 			check id, String
 			check notifyAboutChanges, Boolean
 			u.joining.vote @userId, logm 's.c.join', id
+			u.joiningPerType.vote @userId, (u.a.get id)?.type
 			u.notifyAboutChanges.vote @userId, id if notifyAboutChanges
 			u.m.notifyAboutJoinedUser id
 		disjoin: (id) ->
 			check id, String
 			u.joining.unvote @userId, id
+			u.joiningPerType.unvote @userId, (u.a.get id)?.type
 			u.notifyAboutChanges.unvote @userId, id
 		#notifyAboutChanges: (id) ->
 			#check id, String
@@ -244,9 +255,9 @@ if Meteor.isClient
 		myFlaggedActivities : Meteor.subscribe 'myFlaggedActivities'
 		#myUserVotes         : Meteor.subscribe 'myUserVotes' - don't need to subscribe from the start
 	# link collections for iron router resource package to find them automatically
-	window.Activities = @activities;
-	window.Types = @types;
-	u.users = window.Users = Meteor.users;
+	window.Activities = @activities
+	window.Types = @types
+	u.users = window.Users = Meteor.users
 	u.flaggedTypes      = new Meteor.Collection 'flaggedTypes'
 	u.flaggedActivities = new Meteor.Collection 'flaggedActivities'
 

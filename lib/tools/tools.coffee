@@ -118,8 +118,12 @@ u.loge = @loge = (e) =>
 @debounce = (time, fn) -> _.debounce fn, time
 @throttle = (time, fn) -> _.throttle fn, time
 @between = (value, min, max) -> Math.max min, Math.min max, value
-@parseIntOr = (value, otherwise) -> unlessNaN (parseInt value), otherwise
-@parseFloatOr = (value, otherwise) -> unlessNaN (parseFloat value), otherwise
+@parseNumberOr = (value, otherwise = 0, parser = parseFloat) ->
+	if _.isArray value then value[i] = parseNumberOr v, otherwise, parser for v,i in value
+	else unlessNaN (parser value), otherwise
+@parseIntOr = (value, otherwise = 0) -> parseNumberOr value, otherwise, parseInt
+#@parseFloatOr = (value, otherwise = 0) -> unlessNaN (parseFloat value), otherwise
+@parseFloatOr = (value, otherwise = 0) -> parseNumberOr value, otherwise, parseFloat
 @unlessNaN = (value, otherwise) -> unless _.isNaN value then value else otherwise
 @doAndReturnIf = (data, fn) -> doAndReturn data, -> fn data if data?
 @doAndReturn = (data, fn) ->
@@ -351,7 +355,12 @@ _.extend u.l,
 		# -> bb = [lat_south, lat_north, lng_west, lng_east]
 		# required: lat north, lng east, lat south, lng west
 		# bb = if (bb = data.boundingbox)? then [bb[3], bb[1], bb[2], bb[0]] else u.l.createBoundingBox data.lat, data.lon, u.l.minRadius
-		distance = if (bb = data.boundingbox)? then (u.l.distanceInMeters bb[1], bb[3], bb[0], bb[2])/2 else u.l.defaultRadius
+		#distance = if (bb = data.boundingbox)? then (u.l.distanceInMeters bb[1], bb[3], bb[0], bb[2])/2 else u.l.defaultRadius
+		if (bb = data.boundingbox)?
+			bb = parseFloatOr bb, 0
+			data.lat = (bb[1]+bb[0])/2; data.lon = (bb[3]+bb[2])/2 # lat/lng is ofter far off the center, e.g. in Greece
+			distance = (u.l.distanceInMeters bb[1], bb[3], bb[0], bb[2])/2.5 # with 2 the radius was too much somehow for Greece
+		else distance = u.l.defaultRadius
 		l = u.l.create data.display_name, data.lat, data.lon, (if distance < u.l.minRadius then u.l.defaultRadius else distance)
 		# l.tokens = u.removeAll(l.label, ',', ';')?.split(' ') ? []
 		l # logm 'u.l.createFromOsmData', l
