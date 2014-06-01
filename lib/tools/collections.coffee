@@ -10,7 +10,7 @@ crudDeny =
 CollectionBehaviours.defineBehaviour 'owned', (getTransform, args) ->
 	isAdmin = -> Roles? and Roles.userIsInRole Meteor.user(), 'admin'
 	mineOrAdmin = (userId, doc) -> userId? and ((doc.owner is userId) or isAdmin())
-	@before.insert (userId, doc) => doc.owner = userId
+	@before.insert (userId, doc) => doc.owner = userId unless isAdmin() and doc.owner?
 	@before.update (userId, doc, fieldNames, modifier, options) =>
 		if not isAdmin() then delete modifier?.$set?.owner
 	# @allow _.extend crudAllow,

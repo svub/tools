@@ -119,10 +119,10 @@ u.loge = @loge = (e) =>
 @throttle = (time, fn) -> _.throttle fn, time
 @between = (value, min, max) -> Math.max min, Math.min max, value
 @parseNumberOr = (value, otherwise = 0, parser = parseFloat) ->
-	if _.isArray value then value[i] = parseNumberOr v, otherwise, parser for v,i in value
+	if _.isNumber value then value
+	else if _.isArray value then value[i] = parseNumberOr v, otherwise, parser for v,i in value
 	else unlessNaN (parser value), otherwise
 @parseIntOr = (value, otherwise = 0) -> parseNumberOr value, otherwise, parseInt
-#@parseFloatOr = (value, otherwise = 0) -> unlessNaN (parseFloat value), otherwise
 @parseFloatOr = (value, otherwise = 0) -> parseNumberOr value, otherwise, parseFloat
 @unlessNaN = (value, otherwise) -> unless _.isNaN value then value else otherwise
 @doAndReturnIf = (data, fn) -> doAndReturn data, -> fn data if data?
@@ -140,7 +140,7 @@ u.loge = @loge = (e) =>
 	data
 
 @transform = (data, fn) ->
-	results = if _.isArray then [] else {}
+	results = if _.isArray data then [] else {}
 	if data?
 		for item,key in data
 			if (transformed = fn item)? then results[key] = transformed
@@ -162,7 +162,7 @@ u.asBoolean = @asBoolean = (something, otherwise = false) ->
 			else otherwise
 u.notEmpty = @notEmpty = (stringOrArray, toBeRemoved...) ->
 	if (o = stringOrArray)?
-		if _.isString o then o = $.trim(o)
+		if _.isString o then o = _.trim(o)
 		if toBeRemoved? and toBeRemoved.length > 0 then o = u.removeAll o, _.flatten(toBeRemoved)
 		if o.length > 0 then o else null
 	else null

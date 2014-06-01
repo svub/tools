@@ -16,6 +16,7 @@
 	defaultLang: 'en'
 	baseUrl: 'http://umeedoo.net'
 	empty: {}
+	eventfulApiKey: 'fq3Lvw4Qzskp8npF'
 	a: {} # activities
 	m: {} # messaging
 	s: # search
@@ -28,3 +29,4 @@
 	p: {} # publications and permissions
 	r: {} # routing
 	x: {} # extenal webservices
+	_: {} # admin stuff
