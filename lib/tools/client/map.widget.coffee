@@ -18,7 +18,7 @@ class MapController
     Deps.autorun =>
       @setData @dataSource()
 
-  setData: (newData) -> unless EJSON.equals newData, @data then @data = newData; @init =>
+  setData: (newData) -> unless EJSON.equals newData, @data then @data = newData; @ensureInit =>
     @doNotify = false
     logmr 'MapWidget.setData', @data
     @s = @data.show ? all: true
@@ -98,6 +98,7 @@ class MapController
 
   updateSearch: debounce 300, ->
     # u.w.setTypeaheadQuery @d.search, (@data.location?.label ? '')), 300
+    logmr 'MapWidget.updateSearch: l, m.search', @data.location, @m.search
     @m.search.setValue @data.location
 
   plotMarkers: ->
@@ -140,15 +141,15 @@ class MapController
     (l = @data.location)?.distance = distance = @getDistance()
     @data.onChange l, distance
 
-  init: (done) ->
+  ensureInit: (done) ->
     # TODO initv2: wait if map is needed only
     unless L?
-      later (@wait*=2), => @init(done)
+      later (@wait*=2), => @ensureInit(done)
       return
     @doInit()
     done()
 
-  _doInit: -> # seems to run in once for the class, not once per instance > moved once to constructor_.once ->
+  _doInit: ->
     # TODO initv2: remove once; instead, add and remove components as configured
     # get references
     @c = # conainters
