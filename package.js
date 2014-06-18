@@ -7,13 +7,13 @@ Package.on_use(function (api, where) {
   
   common = ['client', 'server'];
 
-  api.add_files('lib/tools/server/voting.coffee', common);
-  
   api.use(['check', 'underscore', 'moment', 'coffeescript', 'collection-behaviours', 'underscore-string-latest', 'meteor', 'templating', 'ejson', 'mongo-livedata', 'deps'], common);
   api.add_files('lib/tools/constants.coffee', common);
   api.add_files('lib/tools/tools.coffee', common);
   api.add_files('lib/tools/permissions.coffee', common);
-  api.add_files('lib/tools/collections.coffee', common);
+  api.add_files('lib/behaviours.coffee', common);
+  api.add_files('lib/collection-extensions.coffee', common);
+  //api.add_files('lib/tools/collections.coffee', common);
   
   api.add_files('lib/tools/server/policy.coffee', 'server');
   

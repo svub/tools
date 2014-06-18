@@ -257,6 +257,10 @@ u.shorten = (string, maxLength, middle=true) ->
 
 u.toFixed = (number, decimalPlaces) ->
   parseFloat new Number(number).toFixed decimalPlaces
+u.getValue = (object, path) -> if path? and object?
+  if _.isString path then path = path.split('.').reverse()
+  if path.length > 1 then u.getValue object[path.pop()], path
+  else object[path[0]]
 
 u.session = (key, value) ->
   if value?
@@ -280,10 +284,12 @@ _.extend u.l,
   defaultRadius: 10000 # 10km
   maxRadius: 1500000 # 1500km
   maxCloseByRadius: 20000 # 20km
-  trim: (location) ->
+
+  trim: (location) -> if location?
     location.lat = u.toFixed location.lat, 6
     location.lng = u.toFixed location.lng, 6
     location
+
   serialize: (location) ->
     if not location? or location is false then '_'
     else
@@ -346,11 +352,13 @@ _.extend u.l,
       label: label
 
   # distance in meters!
-  createFromPoint: (lat, lng, distance=u.l.defaultRadius, callback) ->
-    if not callback? and _.isFunction distance then [callback, distance] = [distance, u.l.defaultRadius]
-    log "u.l.createFromPoint: lat=#{lat}; lng=#{lng}; distance=#{distance}"
+  createFromPoint: (lat, lng, distance=u.l.defaultRadius, zoom=8, callback) ->
+    if not callback?
+      if _.isFunction distance then [callback, distance] = [distance, u.l.defaultRadius]
+      else if _.isFunction zoom then [callback, zoom] = [zoom, 8]
+    log "u.l.createFromPoint: lat=#{lat}; lng=#{lng}; distance=#{distance}; zoom=#{zoom}"
     location = logm 'u.l.createFromPoint: location', u.l.create '<picked from map>', lat, lng, distance
-    u.l.addName location, callback
+    u.l.addName location, zoom, callback
 
   createFromGeonamesData: (data) ->
     bb = data?.bbox ? {}
@@ -411,14 +419,25 @@ _.extend u.l,
       u.l.addName l, callback
     logm 'u.l.createFromJavascriptApi', l
 
-  addName: (location, callback) ->
+  addName: (location, zoom=8, callback) ->
+    if _.isFunction zoom then [zoom, callback] = [8, zoom]
     check callback, Function
-    u.x.osm.reverse location.lat, location.lng, (data) ->
+    # match leaflet.zoom with OSM zoom, usually to detailed
+    zoom = Math.max 0, zoom-(if zoom > 7 then 3 else 2)
+    # 6..9 give very funny results for Berlin
+    # http://nominatim.openstreetmap.org/reverse?format=json&lat=52.546713&lon=13.455849&zoom=8&addressdetails=0
+    if 5 < zoom < 8 then zoom = 5
+    if 7 < zoom < 10 then zoom = 10
+    u.x.osm.reverse location.lat, location.lng, zoom, (data) ->
       if data?
         osmLocation = u.l.createFromOsmData data
-        location.label = osmLocation.label
-        # location.tokens = osmLocation.tokens
+        location.label = u.l.sanitizeLabel osmLocation.label
       callback logmr 'u.l.addName: enhanced location', location
+
+  sanitizeLabel: (label) ->
+    blackList = ['Central section of ', /,([^,]*)Prefecture/, /Municipality of ([^,]*), /, /, European Union$/]
+    _s.trim u.removeAll label, blackList
+
 
   # returns the {@link GeoPoint} that is in the given direction at the following
   # radiusInKm of the given point.<br>
@@ -481,7 +500,12 @@ _.extend u.l,
 
   # Copyright 2010, Silvio Heuberger @ IFS www.ifs.hsr.ch
   distanceInMeters: (lat1, lng1, lat2, lng2) ->
-    if not lat2? and not lng2? and _.isArray(lat1) and _.isArray(lng1)
+    if _.isFunction lat1?.getNorth
+      lng1 = lat1.getWest()
+      lat2 = lat1.getSouth()
+      lng2 = lat1.getEast()
+      lat1 = lat1.getNorth()
+    else if not lat2? and not lng2? and _.isArray(lat1) and _.isArray(lng1)
       lat2 = lng1[0]; lng2 = lng1[1]; lng1 = lat1[1]; lat1 = lat1[0]
 
     DEG_TO_RAD = 0.0174532925; EPSILON = 1e-12;
@@ -554,8 +578,9 @@ _.extend u.x,
       $.ajax (logmr 'u.x.osm: request URL', "http://nominatim.openstreetmap.org/search?format=json&#{parameters}"),
         success: (data) -> callback(logmr 'u.x.osm: data', data)
 
-    reverse: (lat, lng, callback) ->
-      url = "http://nominatim.openstreetmap.org/reverse?format=json&lat=#{lat}&lon=#{lng}"
+    reverse: (lat, lng, zoom=8, callback) ->
+      if _.isFunction zoom then [zoom, callback] = [8, zoom]
+      url = "http://nominatim.openstreetmap.org/reverse?format=json&lat=#{lat}&lon=#{lng}&zoom=#{zoom}&addressdetails=0"
       $.ajax (logmr 'u.x.osm.reverse: request URL', url),
         success: (data) -> callback logmr 'u.x.osm.reverse: data', data
         error: (x, s, e) ->

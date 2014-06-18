@@ -15,8 +15,7 @@ class MapController
     @container = $ @container
     @doInit = _.once => @_doInit()
     if (d = @dataSource())?.autoInit ? true then @setData d
-    Deps.autorun =>
-      @setData @dataSource()
+    Deps.autorun => @update()
 
   setData: (newData) -> unless EJSON.equals newData, @data then @data = newData; @ensureInit =>
     @doNotify = false
@@ -47,9 +46,20 @@ class MapController
     @data.location = location
     @updateLocation moveInView, calculateDistance, true
   updateLocation: (moveInView = false, calculateDistance = true, notify = false) ->
+    logmr 'MapWidget.updateLocation: location', @data.location
+    unless (location = @data.location)?
+      if @data.markers?.length and (b = L.latLngBounds (m.location for m in @data.markers))?
+        logmr 'MapWidget.updateLocation: l from markers..., b', b
+        logmr 'MapWidget.updateLocation: location', location = b.getCenter()
+        bounds = [[b.getNorth(), b.getEast()], [b.getSouth(), b.getWest()]]
+        logmr 'MapWidget.updateLocation: bounds', bounds
+        @autoZoom true, bounds
+      else
+        @m.map.fitWorld()
+      @updateArea false, false # hide area marker without location
     if calculateDistance then @setDistance()
-    @m.marker.setLatLng @data.location ? [0,0]
-    @updateArea moveInView
+    @m.marker.setLatLng location ? [0,0]
+    if @data.location? then @updateArea moveInView
     @updateSearch()
     if notify then @notify()
   moveLocation: (latLng, moveInView = false) ->
@@ -58,16 +68,17 @@ class MapController
     else latLng = @m.marker.getLatLng()
     @updateArea moveInView
     @enrichLocation latLng
-  enrichLocation: throttle 300, (latLng = @m.marker.getLatLng()) ->
-    u.l.createFromPoint latLng.lat, latLng.lng, @getDistance(), (location) =>
+  # changed throttle to debounce so that map.zoom is updated
+  enrichLocation: debounce 100, (latLng = @m.marker.getLatLng()) ->
+    u.l.createFromPoint latLng.lat, latLng.lng, @getDistance(), @m.map.getZoom(), (location) =>
       @setLocation location, false, false
 
-  updateArea: (moveInView = false) ->
-    if @data.area
+  updateArea: (moveInView = false, area = @data.area) ->
+    if area
       coordinates = @m.marker.getLatLng()
       distance = @getDistance()
-      logm "MapWidget.updateArea areaType=#{@data.areaType}; dist=#{distance}; coordinates", coordinates
-      (if @data.areaType is 'rect' then @updateArea else @updateCircle).call @, coordinates, distance
+      logm "MapWidget.updateArea moveInView=#{moveInView}; areaType=#{@data.areaType}; dist=#{distance}; coordinates", coordinates
+      (if @data.areaType is 'rect' then @updateRectangle else @updateCircle).call @, coordinates, distance
       @autoZoom moveInView, coordinates, distance
     else
       @m.map.removeLayer @m.rect
@@ -87,19 +98,28 @@ class MapController
     @m.map.panBy [0,1]
     @m.map.panBy [0,-1]
 
-  autoZoom: (zoom = false, coordinates = @m.marker.getLatLng(), distance = @getDistance()) ->
-      bounds = u.l.createBoundingBox coordinates.lat, coordinates.lng, distance*1.1, true
-      unless @m.map.getBounds().contains bounds
-        logm 'MapWidget.autoZoom: bounds', bounds
-        boundsMuchBigger = not @m.map.getBounds().pad(2).contains(bounds)
-        if zoom or boundsMuchBigger then @m.map.fitBounds(bounds)
-        #else @m.map.panTo u.l.getCenter bounds
-        else @m.map.panTo coordinates
-
   updateSearch: debounce 300, ->
     # u.w.setTypeaheadQuery @d.search, (@data.location?.label ? '')), 300
     logmr 'MapWidget.updateSearch: l, m.search', @data.location, @m.search
     @m.search.setValue @data.location
+
+  update: -> # force updating
+      try @setData @dataSource()
+      later => try @updateSize()
+
+  # coordinates can be bounds array, too
+  autoZoom: (zoom = false, coordinates = @m.marker.getLatLng(), distance = @getDistance()) ->
+      logm 'MapWidget.autoZoom: coordinates', coordinates
+      bounds = if (_.isArray coordinates) then coordinates
+      else u.l.createBoundingBox coordinates.lat, coordinates.lng, distance*1.1, true
+      if (mapBounds = @m.map.getBounds()).contains bounds # zoom in?
+        if distance * 5 < u.l.distanceInMeters mapBounds # much smaller, zoom in
+          try @m.map.fitBounds bounds
+      else # zoom out?
+        logm 'MapWidget.autoZoom: bounds', bounds
+        boundsMuchBigger = not @m.map.getBounds().pad(2).contains bounds
+        if zoom or boundsMuchBigger then @m.map.fitBounds bounds
+        else @m.map.panTo coordinates
 
   plotMarkers: ->
     if @m.markers?.length
