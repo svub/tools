@@ -138,6 +138,8 @@ u.loge = @loge = (e) =>
     if _.isFunction condition then condition = condition data
     if condition then data = _.filter data, filter
   data
+u.with = @with = (object, block) -> block.call object
+u.withIf = @withIf = (object, block) -> u.with object, block if object?
 
 @transform = (data, fn) ->
   results = if _.isArray data then [] else {}
@@ -152,7 +154,9 @@ u.createObject = @createObject = ->
     if i%2==1 and (key = arguments[i-1])? then object[key] = o
   object
 u.asArray = @asArray = (something) ->
-  if _.isArray something then something else [something]
+  if something?
+    if _.isArray something then something else [something]
+  else []
 u.asBoolean = @asBoolean = (something, otherwise = false) ->
   if _.isBoolean something then something
   else
@@ -174,6 +178,11 @@ u.removeAll = (stringOrArray, toBeRemoved...) ->
     # logm "u.removeAll #{stringOrArray}", remove
     stringOrArray = stringOrArray.replace remove, ''
   return stringOrArray
+u.replaceAll = (string, map) ->
+  if string?.length and map?
+    string = string.replace (new RegExp k), v for own k,v of map
+  string
+
 u.isEmpty = @isEmpty = (stringOrArray, toBeRemoved...) ->
   not notEmpty(stringOrArray, toBeRemoved)?
 u.extend = (obj, extension) ->
@@ -244,7 +253,7 @@ u.later = @later = (time, method) ->
 # u.shorten = (string, maxLength) -> _s.prune string, maxLength # shorten at the end
 # padding in the middle, e.g. "Some rather extra...long string";
 # test: s='Some rather extra super duper long string'; l=39; console.log(s); console.log(_s.pad('',l,'x')); u.shorten(s, l)
-u.shorten = (string, maxLength, middle=true) ->
+u.shorten = (string, maxLength, middle=true, glue='...') ->
   if (_.isNumber string) and (_.isString maxLength) then [string, maxLength] = [maxLength, string]
   if not string? or string.length <= maxLength then string
   else
@@ -252,8 +261,8 @@ u.shorten = (string, maxLength, middle=true) ->
       l0 = Math.floor maxLength*.55; l1 = maxLength - l0
       first = _s.prune string, l0, ''
       second = _s.reverse _s.prune (_s.reverse string), l1, ''
-      if (result = "#{first}...#{second}").length > string.length then string else result # edge cases
-    else _s.prune string, maxLength # shorten at the end
+      if (result = "#{first}#{glue}#{second}").length > string.length then string else result # edge cases
+    else _s.prune string, maxLength, glue # shorten at the end
 
 u.toFixed = (number, decimalPlaces) ->
   parseFloat new Number(number).toFixed decimalPlaces
@@ -267,17 +276,18 @@ u.session = (key, value) ->
     Session.set key, value
     value
   else Session.get key
+u.sessionToggle = (key, initial = false) ->
+  u.session key, not ((u.session key) ? not initial)
+
 
 u.findAll = u.regex = u.extractAll = (exp, string) ->
   if _.isString exp then exp = new RegExp exp
   (r[1..] while (r = exp.exec string)?)
 
 ### locations #########################################################################################################
-# structure:
-# label
-# coordinates[lat, lon] -> Berlin is about 50, 10; lat==y, lon==x; lon > 0 east of London, lon < 0 west of London; lat at north pole = 90°
-# northEast[lat, lon]   -> around Berlin: southWest < northEast
-# southWest[lat, lon]
+# location structure:
+# label, lat, lng, distance (optional)
+# Berlin is about 50, 10; lat==y, lng==x; lng > 0 east of London, lng < 0 west of London; lat at north pole = 90°
 
 _.extend u.l,
   minRadius: 1000 # 1km
@@ -434,10 +444,16 @@ _.extend u.l,
         location.label = u.l.sanitizeLabel osmLocation.label
       callback logmr 'u.l.addName: enhanced location', location
 
+  labelBlackList: ['Central section of ', /,([^,]*)Prefecture/, /Municipality of ([^,]*), /, /, European Union$/]
+  labelReplaceMap:
+    'European Union, .*$': 'European Union' # avoid wierd 'Europ...., Germany'
   sanitizeLabel: (label) ->
-    blackList = ['Central section of ', /,([^,]*)Prefecture/, /Municipality of ([^,]*), /, /, European Union$/]
-    _s.trim u.removeAll label, blackList
-
+    _s.trim u.replaceAll (u.removeAll label, u.l.labelBlackList), u.l.labelReplaceMap
+  sanitize: (location) -> u.withIf location, ->
+    @lat = (@?.lat ? 0) % 180
+    @lng = (@?.lng ? 0) % 90
+    @label = u.l.sanitizeLabel @?.label ? ''
+    @
 
   # returns the {@link GeoPoint} that is in the given direction at the following
   # radiusInKm of the given point.<br>

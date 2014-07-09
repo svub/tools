@@ -13,7 +13,7 @@ CollectionBehaviours.defineBehaviour 'owned', (getTransform, args) ->
   @before.insert (userId, doc) => doc.owner = userId unless isAdmin() and doc.owner?
   @before.update (userId, doc, fieldNames, modifier, options) =>
     if not isAdmin() then delete modifier?.$set?.owner
-  # @allow _.extend crudAllow,
+	# @allow _.extend crudAllow,
   @allow
     # update: (userId, doc, fields, modifier) -> (doc.owner is userId) or isAdmin()
     # remove: (userId, doc) -> (doc.owner is userId) or isAdmin()
@@ -39,7 +39,7 @@ CollectionBehaviours.defineBehaviour 'indexLocation', (getTransform, args) ->
   createLocationIndex = (object) -> if (l = propertyValue object)?
     object[propertyIndex] = type: 'Point', coordinates: [l.lng ? 0, l.lat ? 0]
   @before.insert (userId, doc) -> createLocationIndex doc
-  @before.update (userId, doc, fieldNames, modifier, options) ->
+  @after.update (userId, doc, fieldNames, modifier, options) ->
     if (index = createLocationIndex doc)? then (modifier.$set ?= {})[propertyIndex] = index
     else (modifier.$unset ?= {})[propertyIndex] = true
 
