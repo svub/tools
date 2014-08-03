@@ -46,10 +46,15 @@ u.addCommonMethods = (object, collection, defaultRoute, getLabel) -> _.extend ob
   url: (obj, route = defaultRoute) -> if (obj = @get obj)? then Router.url route, obj
   link: (obj, route = defaultRoute, label) ->
     if (obj = @get obj)? then "<a href=\"#{@url obj, route}\">#{label ? @label obj}</a>" else label
+  goTo: (obj, route = defaultRoute) ->
+    Router.go route, obj
 
 ### logging ###########################################################################################################
 
-u._loggingEnabled = -> Session?.get?('loggingEnabled') ? (Meteor?.isServer or window?.location?.href?.indexOf?('localhost')>=0)
+#u._loggingEnabled = -> Session?.get?('loggingEnabled') ? (Meteor?.isServer or window?.location?.href?.indexOf?('localhost')>=0)
+u._loggingEnabled = (enable) -> Deps.nonreactive ->
+  if enable? then Session.set 'loggingEnabled', enable
+  Session?.get?('loggingEnabled') ? (Meteor?.isServer or (window?.location?.href?.indexOf?('localhost')>=0))
 u._logStartTime = moment()
 u._getTimeStamp = -> _s.pad((moment()-u._logStartTime).valueOf(), 6) + ' '
 u.log = @log = (obj) =>
@@ -63,7 +68,7 @@ u.logt = @logt = (msg) =>
   u.log msg
   console.trace()
 u.logr = @logr = (objs...) =>
-  return unless u._loggingEnabled()
+  return objs[0] unless u._loggingEnabled()
   try
     #console.log obj
     console.log.apply console, objs
@@ -129,9 +134,14 @@ u.loge = @loge = (e) =>
 @doAndReturn = (data, fn) ->
   fn data
   data
-@maybe = (data, condition, fn) ->
+@maybe = u.rif = (data, condition, fn) ->
   if _.isFunction condition then condition = condition data
   if condition then fn data else data
+@rif = u.rif = (condition, data, otherwise) ->
+  if _.isFunction condition then condition = condition data
+  if condition then data else
+    if _.isFunction otherwise then otherwise data
+    else otherwise
 
 @maybeFilter = (data, condition, filter) ->
   if data?
@@ -147,6 +157,9 @@ u.withIf = @withIf = (object, block) -> u.with object, block if object?
     for item,key in data
       if (transformed = fn item)? then results[key] = transformed
   results
+
+@firstNonEmpty = u.firstNonEmpty = (choices...) -> if choices?
+  return choice for choice in choices when (notEmpty choice)?
 
 u.createObject = @createObject = ->
   object = {}
@@ -173,7 +186,9 @@ u.notEmpty = @notEmpty = (stringOrArray, toBeRemoved...) ->
 u.removeAll = (stringOrArray, toBeRemoved...) ->
   unless stringOrArray?.length then return stringOrArray
   toBeRemoved = _.flatten toBeRemoved
-  if _.isArray stringOrArray then _.without stringOrArray, toBeRemoved
+  if _.isArray stringOrArray
+    toBeRemoved.unshift stringOrArray
+    _.without.apply _, toBeRemoved
   else for remove in toBeRemoved
     # logm "u.removeAll #{stringOrArray}", remove
     stringOrArray = stringOrArray.replace remove, ''
@@ -254,10 +269,10 @@ u.later = @later = (time, method) ->
 # padding in the middle, e.g. "Some rather extra...long string";
 # test: s='Some rather extra super duper long string'; l=39; console.log(s); console.log(_s.pad('',l,'x')); u.shorten(s, l)
 u.shorten = (string, maxLength, middle=true, glue='...') ->
-  if (_.isNumber string) and (_.isString maxLength) then [string, maxLength] = [maxLength, string]
+  if (_.isNumber string) and ((_.isEmpty maxLength) or (_.isString maxLength) ) then [string, maxLength] = [maxLength, string]
   if not string? or string.length <= maxLength then string
   else
-    if middle
+    if middle or not _s.contains string, ' '
       l0 = Math.floor maxLength*.55; l1 = maxLength - l0
       first = _s.prune string, l0, ''
       second = _s.reverse _s.prune (_s.reverse string), l1, ''
@@ -270,6 +285,9 @@ u.getValue = (object, path) -> if path? and object?
   if _.isString path then path = path.split('.').reverse()
   if path.length > 1 then u.getValue object[path.pop()], path
   else object[path[0]]
+u.getValues = (path, objects...) ->
+  (u.getValue object, path for object in _.flatten objects)
+
 
 u.session = (key, value) ->
   if value?
