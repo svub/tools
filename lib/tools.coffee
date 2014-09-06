@@ -450,7 +450,7 @@ _.extend u.l,
   addName: (location, zoom=8, callback) ->
     if _.isFunction zoom then [zoom, callback] = [8, zoom]
     check callback, Function
-    # match leaflet.zoom with OSM zoom, usually to detailed
+    # match leaflet.zoom with OSM zoom, usually too detailed
     zoom = Math.max 0, zoom-(if zoom > 7 then 3 else 2)
     # 6..9 give very funny results for Berlin
     # http://nominatim.openstreetmap.org/reverse?format=json&lat=52.546713&lon=13.455849&zoom=8&addressdetails=0
@@ -466,7 +466,8 @@ _.extend u.l,
   labelReplaceMap:
     'European Union, .*$': 'European Union' # avoid wierd 'Europ...., Germany'
   sanitizeLabel: (label) ->
-    _s.trim u.replaceAll (u.removeAll label, u.l.labelBlackList), u.l.labelReplaceMap
+    if isEmpty label then 'unknown location'
+    else _s.trim u.replaceAll (u.removeAll label, u.l.labelBlackList), u.l.labelReplaceMap
   sanitize: (location) -> u.withIf location, ->
     @lat = (@?.lat ? 0) % 180
     @lng = (@?.lng ? 0) % 90

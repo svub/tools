@@ -25,9 +25,10 @@ Meteor.Collection.prototype.toggle = (obj, putIn) ->
 Meteor.Collection.prototype.findAll = (ids) ->
   if _.isString ids then ids = [ids]
   if not ids? or ids.length < 1 then return []
-  logm 'collection.getAll: ids', ids
+  #logm 'collection.getAll: ids', ids
   if ids.length is 1 then @find _id: ids[0]
-  else @find logm "collection.getAll ids=#{ids}; query", $or: (_id : id for id in ids)
+  #else @find logm "collection.getAll ids=#{ids}; query", $or: (_id : id for id in ids)
+  else @find $or: (_id : id for id in ids)
 Meteor.Collection.prototype.getAll = (ids) ->
   try @findAll(ids).fetch() catch
     return []

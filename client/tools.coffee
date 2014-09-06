@@ -33,6 +33,31 @@ u.fillText = (selector, options={}) ->
       if i[0].scrollWidth > w or i[0].scrollHeight > h
         return setFontSize i, x-1
 
+u.offset = (element = document) ->
+  e = $ element; o = e.offset() ? top: 0, left: 0
+  o.right = o.left + e.outerWidth()
+  o.bottom = o.top + e.outerHeight()
+  o
+
+u.showBelow = (element, container = document) ->
+  e = $ element; c = $ container; co = c.offset()
+  u.keepCompletelyVisible e, 0, c.height(), c
+
+u.keepCompletelyVisible = (element, x = 0, y, container = document, bounds = document) ->
+  b = $ bounds; bo = u.offset b
+  c = $ container; co = c.offset(); cdx =
+  e = $ element; w = e.outerWidth(); h = e.outerHeight(); y ?= co.top
+
+  if (overflow = co.left + x + w - bo.right) > 0 then x -= overflow
+  if (overflow = co.left + x) < 0 then x -= overflow
+  if (overflow = co.top + y + h - bo.bottom) > 0 then y -= overflow
+  if (overflow = co.top + y) < 0 then y -= overflow
+
+  # if c.display:inline-block, e.left=0 does not place the element on the left side of c but on the left of the first letter in c, thus c delta x
+  e.css 'left', 0; cdx = co.left - e.offset().left
+  e.css 'left', cdx + x
+  e.css 'top', y
+
 Meteor.callCached ?= (method, parameters...) ->
   # TODO JSON.stringify parameters and add to sessionKey?
   sessionKey = "callCache_#{method}"

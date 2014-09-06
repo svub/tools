@@ -1,5 +1,6 @@
 # The global u object... u as in util. Not t as in tools, yep.
 @u =
+  url: Meteor.absoluteUrl()
   dateFormat: 'llll' # 'YYYY-MM-DD'
   momentDateFormat: year = 'YYYY-MM-DD'
   #momentDateBeautifulFormat: 'LL'
@@ -21,4 +22,3 @@
   cb: -> logr.apply @, arguments
   l: {} # locations, methods for working with lat/lng geo data
   x: {} # extenal webservice wrapper
-
