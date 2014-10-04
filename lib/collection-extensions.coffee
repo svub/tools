@@ -6,8 +6,8 @@ Meteor.Collection.prototype.put = (obj) ->
     @update { _id: id }, { $set: obj }
     obj._id = id # put the ID back :)
   else
-    obj._id = @insert obj
-  obj
+    obj._id = logm 'ce.put: inserted', @insert logm 'ce.put: insert', obj
+  logm 'ce.put: final', obj
 Meteor.Collection.prototype.putOnce = (obj) ->
   check obj, Object
   if not (@findOne obj)?

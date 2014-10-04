@@ -22,16 +22,30 @@ u.events = (e, map) ->
 
 u.fillText = (selector, options={}) ->
   [selector, options] = [null, selector] unless _.isString selector
-  o = $.extend { start: 100; step: 10; max: 100 }, options
-  ($ selector ? '.fill-text').each ->
+  log o = $.extend { start: 100; step: 10; max: 100 }, options
+  ($ selector ? o.selector ? '.fill-text').each ->
     e = $ @; w = e.width(); h = e.height(); c = e.html()
+    #logmr 'w, h', w, h
+    if (i = $ '.fill-text-inner', e).length > 0 then c = i.html()
     e.addClass('fill-text').empty()
-    i = $('<div>').html(c).appendTo e
+    if clearDim = (e.height() < h or e.width() < w)
+      u.setDimensions e, w, h, 'px'
+    i = $('<div class="fill-text-inner">').html(c).appendTo e
     setFontSize = (el, x) -> el.css 'font-size', "#{o.start+x*o.step}%"; x
     for x in [0..o.max]
       setFontSize i, x
+      #logmr 'x, sW, sH', x, i[0].scrollWidth, i[0].scrollHeight
       if i[0].scrollWidth > w or i[0].scrollHeight > h
+        if clearDim then u.setDimensions e
         return setFontSize i, x-1
+        #e.empty().html c
+        #return setFontSize e, x-1
+
+u.setDimensions = (element, width='', height='', unit = 'px') ->
+  width = "#{width}#{unit}" if _.isNumber width
+  height = "#{height}#{unit}" if _.isNumber height
+  element.css 'width', width
+  element.css 'height', height
 
 u.offset = (element = document) ->
   e = $ element; o = e.offset() ? top: 0, left: 0

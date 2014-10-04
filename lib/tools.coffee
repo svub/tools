@@ -56,8 +56,11 @@ u._loggingEnabled = (enable) -> Deps.nonreactive ->
   if enable? then Session.set 'loggingEnabled', enable
   Session?.get?('loggingEnabled') ? (Meteor?.isServer or (window?.location?.href?.indexOf?('localhost')>=0))
 u._logStartTime = moment()
-u._getTimeStamp = -> _s.pad((moment()-u._logStartTime).valueOf(), 6) + ' '
+u._getTimeStamp = ->
+  m = moment()
+  "#{m.format 'MMDD.HHmmss'} #{_s.pad (m-u._logStartTime).valueOf(), 10} "
 u.log = @log = (obj) =>
+  return obj unless u._loggingEnabled()
   try
     u.logr u._getTimeStamp()+(if _.isString obj then obj else JSON.stringify obj)
   catch error
@@ -65,12 +68,13 @@ u.log = @log = (obj) =>
     console.log error.stack
   obj
 u.logt = @logt = (msg) =>
+  return msg unless u._loggingEnabled()
   u.log msg
   console.trace()
+  msg
 u.logr = @logr = (objs...) =>
   return objs[0] unless u._loggingEnabled()
   try
-    #console.log obj
     console.log.apply console, objs
     #if ("" + obj).toLowerCase().indexOf("error") >= 0 then console.trace()
   catch error
@@ -78,6 +82,7 @@ u.logr = @logr = (objs...) =>
     console.log error.stack
   objs[0]
 u.logm = @logm = (msg, obj) =>
+  return obj unless u._loggingEnabled()
   try
     u.logr u._getTimeStamp()+msg+": "+JSON.stringify obj
   catch error
@@ -85,16 +90,16 @@ u.logm = @logm = (msg, obj) =>
     console.log error.stack
   obj
 u.logmr = @logmr = (msg, objs...) =>
+  return objs[0] unless u._loggingEnabled()
   try
-    # console.log "#{msg}: #{obj}"
-    #u.logr u._getTimeStamp()+"#{msg}: "
-    #u.logr obj
     u.logr.apply u, _.union [u._getTimeStamp()+"#{msg}: "], objs
   catch error
     console.log "error in logmr: msg=#{msg}"
     console.log error.stack
   objs[0]
 u.logmkv = @logmkv = (msg, obj) =>
+  return obj unless u._loggingEnabled()
+  try
   try
     u.logr u._getTimeStamp()+"#{msg}: " + (for k,v of obj
       if typeof v == "function" then "#{k}=f(...)\n" else "#{k}=#{v}\n")
@@ -103,41 +108,48 @@ u.logmkv = @logmkv = (msg, obj) =>
     console.log error.stack
   obj
 u.logme = @logme = (m, e) ->
+  return e unless u._loggingEnabled()
   try
     log m
     loge e
+  e
 u.loge = @loge = (e) =>
+  return e unless u._loggingEnabled()
   try
     if e?
       if e.message?
         if e.stack? then u.logr(u._getTimeStamp()+'Caught error: ' + e.message + "\n" + e.stack)
         else u.logr(u._getTimeStamp()+'Caught error: ' + e.message)
       else u.logr(u._getTimeStamp()+'Caught error: ' + e)
-    else u.logr 'No error'
+    #else u.logr 'No error'
   catch
     # console.log 'Error while logging error'
     # console.trace()
+  e
 
 ### helpers ###########################################################################################################
 
-@debounce = (time, fn) -> _.debounce fn, time
-@throttle = (time, fn) -> _.throttle fn, time
-@between = (value, min, max) -> Math.max min, Math.min max, value
-@parseNumberOr = (value, otherwise = 0, parser = parseFloat) ->
+u.debounce = @debounce = (time, fn) -> _.debounce fn, time
+u.throttle = @throttle = (time, fn) -> _.throttle fn, time
+u.between = @between = (value, min, max) -> Math.max min, Math.min max, value
+u.parseNumberOr = @parseNumberOr = (value, otherwise = 0, parser = parseFloat) ->
   if _.isNumber value then value
   else if _.isArray value then value[i] = parseNumberOr v, otherwise, parser for v,i in value
   else unlessNaN (parser value), otherwise
-@parseIntOr = (value, otherwise = 0) -> parseNumberOr value, otherwise, parseInt
-@parseFloatOr = (value, otherwise = 0) -> parseNumberOr value, otherwise, parseFloat
-@unlessNaN = (value, otherwise) -> unless _.isNaN value then value else otherwise
-@doAndReturnIf = (data, fn) -> doAndReturn data, -> fn data if data?
-@doAndReturn = (data, fn) ->
+u.parseIntOr = @parseIntOr = (value, otherwise = 0) ->
+  parseNumberOr value, otherwise, parseInt
+u.parseFloatOr = @parseFloatOr = (value, otherwise = 0) ->
+    parseNumberOr value, otherwise, parseFloat
+u.unlessNaN = @unlessNaN = (value, otherwise) -> unless _.isNaN value then value else otherwise
+u.doAndReturnIf = @doAndReturnIf = (data, fn) -> doAndReturn data, ->
+  fn data if data?
+u.doAndReturn = @doAndReturn = (data, fn) ->
   fn data
   data
-@maybe = u.rif = (data, condition, fn) ->
+u.maybe = @maybe = (data, condition, fn) ->
   if _.isFunction condition then condition = condition data
   if condition then fn data else data
-@rif = u.rif = (condition, data, otherwise) ->
+u.rif = @rif = (condition, data, otherwise) ->
   if _.isFunction condition then condition = condition data
   if condition then data else
     if _.isFunction otherwise then otherwise data
@@ -193,9 +205,10 @@ u.removeAll = (stringOrArray, toBeRemoved...) ->
     # logm "u.removeAll #{stringOrArray}", remove
     stringOrArray = stringOrArray.replace remove, ''
   return stringOrArray
-u.replaceAll = (string, map) ->
+u.replaceAll = (string, flags, map) ->
+  if _.isObject flags then [flags, map] = ['g', flags]
   if string?.length and map?
-    string = string.replace (new RegExp k), v for own k,v of map
+    string = string.replace (new RegExp k, flags), v for own k,v of map
   string
 
 u.isEmpty = @isEmpty = (stringOrArray, toBeRemoved...) ->
@@ -216,18 +229,20 @@ u.extend2 = u.extendAndBind = (obj, extension) ->
   obj
 u.getLang = -> (if Meteor.isClient then Session.get 'lang') ? u.defaultLang
 u.updateFromForm = (form, obj = {}, splitTextOnLineBreak = true) ->
-  # $('*[name]:not([type=radio])', form).add('*[name][type=radio]:checked', form).each ->
   (l=$('*[name]:not(:radio)', form).add('*[name]:radio:checked', form)).each ->
-    node = $ @
-    name = node.attr 'name'
-    # logr name
-    type = node.attr 'type'
-    return false unless (value = node.val())?
-    isText = (node.prop('tagName') is 'TEXTAREA')
-    split = _.toBoolean(node.data('split') ? (splitTextOnLineBreak and isText)) # set data-split=true to split autmatically or false to avoid splitting
-    uniq = _.toBoolean(node.data('remove-duplicates') ? false) # remove duplicates from array, thus, works only with split rendering true
-    trim = _.toBoolean(node.data('trim') ? true) # default true, remove blank lines in arrays or white space from beginning and end of strings
-    parse = _.toBoolean(node.data('parse') ? true) # default true, remove blank lines in arrays or white space from beginning and end of strings
+    node = $ @; name = node.attr 'name'; type = node.attr 'type'
+    tagName = node.prop 'tagName'; data = node.data()
+    return true unless (value = node.val())?
+
+    isText = tagName is 'TEXTAREA'
+    # set data-split=true to split autmatically or false to avoid splitting
+    split = _.toBoolean data.split ? (splitTextOnLineBreak and isText)
+    # remove duplicates from array, thus, works only with split rendering true
+    uniq = _.toBoolean data['remove-duplicates'] ? false
+    # default true, remove blank lines in arrays or white space from beginning and end of strings
+    trim = _.toBoolean data.trim ? true
+    # default true, parse boolean values like yes, true, on and numbers
+    parse = _.toBoolean data.parse ? true
 
     # conversions
     if split or _.isArray obj[name]
@@ -252,8 +267,8 @@ u.updateFromForm = (form, obj = {}, splitTextOnLineBreak = true) ->
 u.setChecked = (form, obj, silent = false) ->
   # make sure all inputs are initialized correctly - will not trigger change event
   for own attribute, value of logmr 'u.setChecked: obj', obj
-    logr obj
-    log "#{attribute}->#{value}"
+    #logr obj
+    #log "#{attribute}->#{value}"
     #$('[name="'+attribute+'"]:radio', form).each -> @checked = $(this).val() == value; true
     $('[name="'+attribute+'"][value="'+value+'"]:radio', form)[0]?.checked = true
     $('[name="'+attribute+'"]:checkbox', form).each ->
@@ -281,6 +296,10 @@ u.shorten = (string, maxLength, middle=true, glue='...') ->
 
 u.toFixed = (number, decimalPlaces) ->
   parseFloat new Number(number).toFixed decimalPlaces
+u.setValue = (object, path, value) -> if path? and object?
+  if _.isString path then path = path.split('.').reverse()
+  if path.length > 1 then u.setValue object[path.pop()] ?= {}, path, value
+  else object[path[0]] = value
 u.getValue = (object, path) -> if path? and object?
   if _.isString path then path = path.split('.').reverse()
   if path.length > 1 then u.getValue object[path.pop()], path
@@ -290,12 +309,14 @@ u.getValues = (path, objects...) ->
 
 
 u.session = (key, value) ->
+  logt 'Do not use u.session any more!'
   if value?
     Session.set key, value
     value
   else Session.get key
 u.sessionToggle = (key, initial = false) ->
-  u.session key, not ((u.session key) ? not initial)
+  #u.session key, not ((u.session key) ? not initial)
+  Session.set key, not ((Session.get key) ? not initial)
 
 
 u.findAll = u.regex = u.extractAll = (exp, string) ->
