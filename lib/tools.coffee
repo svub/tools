@@ -45,7 +45,8 @@ u.addCommonMethods = (object, collection, defaultRoute, getLabel) -> _.extend ob
   label: (obj) -> getLabel obj
   url: (obj, route = defaultRoute) -> if (obj = @get obj)? then Router.url route, obj
   link: (obj, route = defaultRoute, label) ->
-    if (obj = @get obj)? then "<a href=\"#{@url obj, route}\">#{label ? @label obj}</a>" else label
+    #if (obj = @get obj)? then "<a href=\"#{@url obj, route}\">#{label ? @label obj}</a>" else label
+    if (obj = @get obj)? then u.createLink (@url obj, route), label ? @label obj else label
   goTo: (obj, route = defaultRoute) ->
     Router.go route, obj
 
@@ -129,6 +130,8 @@ u.loge = @loge = (e) =>
 
 ### helpers ###########################################################################################################
 
+u.createLink = (url, label = url, blank = false) ->
+  "<a href=\"#{url}\"#{if blank then ' target="_blank"' else ''}>#{label}</a>"
 u.debounce = @debounce = (time, fn) -> _.debounce fn, time
 u.throttle = @throttle = (time, fn) -> _.throttle fn, time
 u.between = @between = (value, min, max) -> Math.max min, Math.min max, value
@@ -146,6 +149,13 @@ u.doAndReturnIf = @doAndReturnIf = (data, fn) -> doAndReturn data, ->
 u.doAndReturn = @doAndReturn = (data, fn) ->
   fn data
   data
+#u.doIf = (fn, data, otherwise) -> if fn? then (fn data) ? otherwise else otherwise
+u.doIf = (fn, data, otherwise) -> (fn? data) ? otherwise
+u.doIfMulti = (functions, parameters, defaultResult, applyTo = window) ->
+  result = defaultResult
+  for fn in functions when fn?
+    result = (fn.apply applyTo, parameters) ? defaultResult
+  result
 u.maybe = @maybe = (data, condition, fn) ->
   if _.isFunction condition then condition = condition data
   if condition then fn data else data
@@ -228,8 +238,17 @@ u.extend2 = u.extendAndBind = (obj, extension) ->
     # logmr "#{name}", obj[name]
   obj
 u.getLang = -> (if Meteor.isClient then Session.get 'lang') ? u.defaultLang
-u.updateFromForm = (form, obj = {}, splitTextOnLineBreak = true) ->
-  (l=$('*[name]:not(:radio)', form).add('*[name]:radio:checked', form)).each ->
+
+u.updateFromForm = (form, formData = {}, splitTextOnLineBreak = true) ->
+  _.extend formData, u.getFormData form, splitTextOnLineBreak
+u.getFormData = (form, splitTextOnLineBreak = true) ->
+  formData = {}
+  #l = $ '*[name]:not(:radio):not(:checkbox)', form
+  #  .add '*[name]:radio:checked', form
+  #  .add '*[name]:checkbox:checked', form
+  l = $ '*[name]:not(:radio)', form
+    .add '*[name]:radio:checked', form
+  l.each ->
     node = $ @; name = node.attr 'name'; type = node.attr 'type'
     tagName = node.prop 'tagName'; data = node.data()
     return true unless (value = node.val())?
@@ -245,7 +264,7 @@ u.updateFromForm = (form, obj = {}, splitTextOnLineBreak = true) ->
     parse = _.toBoolean data.parse ? true
 
     # conversions
-    if split or _.isArray obj[name]
+    if split # or _.isArray formData[name] -- not automatic assumtions
       value = value?.split "\n"
       if trim then value = _.without value, '%20', '', ' '
       if uniq then value = _.uniq value
@@ -256,26 +275,45 @@ u.updateFromForm = (form, obj = {}, splitTextOnLineBreak = true) ->
         if value.toLowerCase() in ['yes', 'true', 'on'] then value = true
         else if value.toLowerCase() in ['no', 'false', 'off'] then value = false
         else if _.isNumber(number = parseFloat value) and not _.isNaN number then value = number
-      if (type?.toLowerCase?() is 'checkbox') and (not node.is(':checked'))
-        value = (if _.isBoolean value then false else null)
+      #if (type?.toLowerCase?() is 'checkbox') and (not node.is(':checked'))
+      #  value = (if _.isBoolean value then false else null)
+      #  if (previous = formData[name])? then value = _.union previous, value
+      if node.is ':checkbox'
+        checked = node.is ':checked'
+        if (previous = formData[name])?
+          if _.isArray previous # append if checked
+            value = if checked then _.union previous, value else previous
+          else
+            if !previous then value = [value]
+            else value = if checked then [previous, value] else previous
+        else if not checked
+          value = (if _.isBoolean value then false else null)
 
-    #logm "u.updateFromForm: updating #{name}=#{obj[name]} isText=#{isText}; split=#{split}; trim=#{trim}; parse=#{parse}; uniq=#{uniq} to #{value}", value;
-    obj[name] = value
+    #logm "u.updateFromForm: updating #{name}=#{formData[name]} isText=#{isText}; split=#{split}; trim=#{trim}; parse=#{parse}; uniq=#{uniq} to #{value}", value;
+    formData[name] = value
     return true # otherwise, if value is FALSE, jQuery will break the loop... :O#
-  #logmr 'u.updateFromForm updated obj', obj
-  obj
-u.setChecked = (form, obj, silent = false) ->
+  #logmr 'u.updateFromForm updated formData', formData
+  formData
+
+u.getChecked = (name, container) ->
+  $("input[name=#{name}]:checked", container).val()
+
+u.setChecked = (form, data, silent = false) -> u.setFormData form, data, silent
+u.setFormData = (form, data, silent = false) ->
   # make sure all inputs are initialized correctly - will not trigger change event
-  for own attribute, value of logmr 'u.setChecked: obj', obj
-    #logr obj
-    #log "#{attribute}->#{value}"
-    #$('[name="'+attribute+'"]:radio', form).each -> @checked = $(this).val() == value; true
-    $('[name="'+attribute+'"][value="'+value+'"]:radio', form)[0]?.checked = true
-    $('[name="'+attribute+'"]:checkbox', form).each ->
-      logr @checked = asBoolean (logr value), $(logr this).val() is value; true
-  unless silent then for attribute, value of obj
+  for own attribute, value of logmr 'u.setFormData: data', data
+    unless _.isArray value
+      $('[name="'+attribute+'"][value="'+value+'"]:radio', form)[0]?.checked = true
+    values = u.asArray value
+    $('[name="'+attribute+'"]:checkbox', form).each (index) ->
+      @checked = ($(this).val() in values) or asBoolean (values[index]), false
+      true
+    $('select[name="'+attribute+'"]', form).val value
+  unless silent then for own attribute, value of data
     $('[name="'+attribute+'"][value="'+value+'"]:radio', form).add('[name="'+attribute+'"]:checkbox', form).each ->
       $(this).change(); true
+
+u.clone = (object) -> EJSON.parse EJSON.stringify object
 u.later = @later = (time, method) ->
   if _.isFunction time then [time, method] = [1, time]
   setTimeout method, time
@@ -296,17 +334,71 @@ u.shorten = (string, maxLength, middle=true, glue='...') ->
 
 u.toFixed = (number, decimalPlaces) ->
   parseFloat new Number(number).toFixed decimalPlaces
-u.setValue = (object, path, value) -> if path? and object?
+#u.setValue = (object, path, value) -> if path? and object?
+#  if _.isString path then path = path.split('.').reverse()
+#  if path.length > 1 then u.setValue object[path.pop()] ?= {}, path, value
+#  else object[path[0]] = value
+#u.unsetValue = (object, path) -> if path? and object?
+#  if _.isString path then path = path.split('.').reverse()
+#  if path.length > 1 then u.setValue object[path.pop()] ?= {}, path, value
+#  else delete object[path[0]]
+#u.getValue = (object, path) -> if path? and object?
+#  if _.isString path then path = path.split('.').reverse()
+#  if path.length > 1 then u.getValue object[path.pop()], path
+#  else object[path[0]]
+
+u.traverseObject = (object, path, create, whenFoundCallback) -> if object? and path? and whenFoundCallback?
   if _.isString path then path = path.split('.').reverse()
-  if path.length > 1 then u.setValue object[path.pop()] ?= {}, path, value
-  else object[path[0]] = value
-u.getValue = (object, path) -> if path? and object?
-  if _.isString path then path = path.split('.').reverse()
-  if path.length > 1 then u.getValue object[path.pop()], path
-  else object[path[0]]
+  if path.length > 1
+    value = object[field = path.pop()]
+    if create and not value? then object[field] = value = {}
+    if value? then u.traverseObject value, path, create, whenFoundCallback
+  else whenFoundCallback object, path[0]
+u.setValue = (object, path, value) -> u.traverseObject object, path, true, (o, k) -> o[k] = value
+u.unsetValue = (object, path) -> u.traverseObject object, path, false, (o, k) -> delete o[k]
+u.getValue = (object, path) -> u.traverseObject object, path, false, (o, k) -> o[k]
+u.hasValue = (object, path) ->
+  has = false
+  u.traverseObject object, path, false, (o, k) -> has = o.hasOwnProperty k
+  has
 u.getValues = (path, objects...) ->
   (u.getValue object, path for object in _.flatten objects)
 
+u.containsAny = u.intersects = (list, values) ->
+  (_.intersection list, values).length > 0
+u.protectCollection = (collection, fieldsToCheck) ->
+  if collection? and (fieldsToCheck = _.compact fieldsToCheck).length > 0
+    name = collection._name
+    u.logmr "u.protectCollection #{name}: fieldsToCheck", fieldsToCheck
+    fieldRoots = {}
+    for field in fieldsToCheck when (field.indexOf '.') >= 0
+      fieldRoots[(field.split '.')[0]] = field
+    roots = _.keys fieldRoots
+    u.logmr "u.protectCollection #{name}: fieldRoots", fieldRoots, roots
+
+    collection.deny
+      update: (userId, doc, fields, modifiers) =>
+        u.logmr "u.protectCollection #{name}: fields", fields
+        return u.logmr "u.protectCollection #{name}: updating denied", true if u.intersects fields, fieldsToCheck
+        modSets = _.values modifiers
+        for root in _.intersection fields, roots
+          for modSet in modSets
+            return u.logmr "u.protectCollection #{name}: updating #{fieldRoots[root]} denied", true if u.hasValue modSet, fieldRoots[root]
+        u.logmr "u.protectCollection #{name}: update denied", false
+      insert: (userId, doc) =>
+        for field in fieldsToCheck
+          return u.logmr "u.protectCollection #{name}: insert denied", true if u.hasValue doc, field
+        u.logmr "u.protectCollection #{name}: insert denied", false
+      fetch: []
+
+u.equal = u.equals = (obj1, obj2, fields) ->
+  if not fields? then EJSON.equals obj1, obj2
+  else if (obj1 is obj2) or fields.length == 0 then true
+  else if (not obj1?) or (not obj2?) then false
+  else
+    for field in fields when field?
+      return false unless EJSON.equals obj1[field], obj2[field]
+    true
 
 u.session = (key, value) ->
   logt 'Do not use u.session any more!'

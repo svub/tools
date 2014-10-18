@@ -1,12 +1,18 @@
-Meteor.Collection.prototype.put = (obj) ->
+Meteor.Collection.prototype.put = (obj, callback, options = {}) ->
   check obj, Object
   if (id = obj._id)?
     check id, String
     delete obj._id
-    @update { _id: id }, { $set: obj }
+    @update { _id: id }, { $set: obj }, options, callback
     obj._id = id # put the ID back :)
   else
-    obj._id = logm 'ce.put: inserted', @insert logm 'ce.put: insert', obj
+    logm 'ce.put: insert', obj
+    if callback?
+      @insert obj, (error, id) ->
+        obj._id = id unless error?
+        callback error, id
+    else
+      obj._id = logm 'ce.put: inserted', @insert obj
   logm 'ce.put: final', obj
 Meteor.Collection.prototype.putOnce = (obj) ->
   check obj, Object
