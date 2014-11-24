@@ -9,6 +9,7 @@ Package.on_use(function (api, where) {
 
   api.use(['check', 'underscore', 'moment', 'coffeescript', 'collection-behaviours', 'underscore-string-latest', 'meteor', 'templating', 'ejson', 'mongo-livedata', 'deps'], common);
   api.add_files('lib/constants.coffee', common);
+  api.add_files('lib/md5.js', common);
   api.add_files('lib/tools.coffee', common);
   //api.add_files('lib/tools/permissions.coffee', common);
   api.add_files('lib/behaviours.coffee', common);
@@ -16,7 +17,7 @@ Package.on_use(function (api, where) {
   api.add_files('lib/debugging-tools.coffee', common);
   //api.add_files('lib/tools/collections.coffee', common);
 
-  //api.add_files('lib/tools/server/policy.coffee', 'server');
+  api.add_files('server/geonames.coffee', 'server');
 
   api.use(['bootstrap-growl', 'minimongo', 'less', 'bootstrap3-less'], 'client');
   //api.add_files('lib/tools/client/typeahead.0.9.3.css', 'client');

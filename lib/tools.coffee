@@ -1,14 +1,17 @@
 Match.OptionalOrNull = (pattern) -> Match.OneOf undefined, null, pattern
 Meteor.acall = (name, args...) -> Meteor.call.apply @, _.flatten [name, args, (->)]
 
-_s.hash ?= `function (str) {
-  var hash = 0, len = str.length
-  if (len == 0) return hash;
-  for (var i = 0; i < len; i++) {
-    hash = hash * 31 + str.charCodeAt(i);
-  }
-  return hash;
-}`
+#_s.hash ?= u.stringHash = `function (str) {
+#  var hash = 0, len = str.length
+#  if (len == 0) return hash;
+#  for (var i = 0; i < len; i++) {
+#    hash = hash * 31 + str.charCodeAt(i);
+#  }
+#  return hash;
+#}`
+#_s.hash ?= u.stringHash = (str) -> rstr_md5 str
+_s.hash ?= u.stringHash # using md5 algo
+
 _s.match ?= (string1, string2, similarity=.75) -> (1-_.levenshtein(string1, string2)/Math.max(string1?.length, string2?.length)) >= similarity
 _s.startsWithI = (string, part) ->
   _s.startsWith string?.toLowerCase(), part?.toLowerCase()
@@ -130,8 +133,8 @@ u.loge = @loge = (e) =>
 
 ### helpers ###########################################################################################################
 
-u.createLink = (url, label = url, blank = false) ->
-  "<a href=\"#{url}\"#{if blank then ' target="_blank"' else ''}>#{label}</a>"
+u.createLink = (url, label = url, blank = false, css) ->
+  "<a href=\"#{url}\"#{if blank then ' target="_blank"' else ''}#{if css? then ' class="'+css+'"' else ''}>#{label}</a>"
 u.debounce = @debounce = (time, fn) -> _.debounce fn, time
 u.throttle = @throttle = (time, fn) -> _.throttle fn, time
 u.between = @between = (value, min, max) -> Math.max min, Math.min max, value
@@ -144,6 +147,10 @@ u.parseIntOr = @parseIntOr = (value, otherwise = 0) ->
 u.parseFloatOr = @parseFloatOr = (value, otherwise = 0) ->
     parseNumberOr value, otherwise, parseFloat
 u.unlessNaN = @unlessNaN = (value, otherwise) -> unless _.isNaN value then value else otherwise
+u.hasText = (arrayOrString) ->
+  return false unless arrayOrString?
+  arrayOrString = arrayOrString.join '' if _.isArray arrayOrString
+  (_s.trim arrayOrString).length > 0
 u.doAndReturnIf = @doAndReturnIf = (data, fn) -> doAndReturn data, ->
   fn data if data?
 u.doAndReturn = @doAndReturn = (data, fn) ->
@@ -203,7 +210,8 @@ u.notEmpty = @notEmpty = (stringOrArray, toBeRemoved...) ->
   if (o = stringOrArray)?
     if _.isString o then o = _.trim(o)
     if toBeRemoved? and toBeRemoved.length > 0 then o = u.removeAll o, _.flatten(toBeRemoved)
-    if o.length > 0 then o else null
+    #if o.length > 0 then o else null
+    if u.hasText o then o
   else null
 u.removeAll = (stringOrArray, toBeRemoved...) ->
   unless stringOrArray?.length then return stringOrArray
@@ -220,6 +228,15 @@ u.replaceAll = (string, flags, map) ->
   if string?.length and map?
     string = string.replace (new RegExp k, flags), v for own k,v of map
   string
+u.encodeQueryString = (query) -> encodeURIComponent(query).replace /%20/g, '+'
+u.plainTextToHtml = (text) ->
+  re = u.plainTextToHtmlRegExp ?= new RegExp '(https?://)([^ ]+)', 'gim'
+  text = u.replaceAll (text ? ''), "\n": '<br/>'
+  text.replace re, (url, scheme, path) ->
+    u.createLink url, (u.shorten 40, path.replace 'www.', ''), true
+u.chunkString = (string, size) ->
+  re = new RegExp ".{1,#{size}}", 'g'
+  string.match re
 
 u.isEmpty = @isEmpty = (stringOrArray, toBeRemoved...) ->
   not notEmpty(stringOrArray, toBeRemoved)?
@@ -493,10 +510,10 @@ _.extend u.l,
       label: label
 
   # distance in meters!
-  createFromPoint: (lat, lng, distance=u.l.defaultRadius, zoom=8, callback) ->
+  createFromPoint: (lat, lng, distance=u.l.defaultRadius, zoom, callback) ->
     if not callback?
       if _.isFunction distance then [callback, distance] = [distance, u.l.defaultRadius]
-      else if _.isFunction zoom then [callback, zoom] = [zoom, 8]
+      else if _.isFunction zoom then [callback, zoom] = [zoom, undefined]
     log "u.l.createFromPoint: lat=#{lat}; lng=#{lng}; distance=#{distance}; zoom=#{zoom}"
     location = logm 'u.l.createFromPoint: location', u.l.create '<picked from map>', lat, lng, distance
     u.l.addName location, zoom, callback
@@ -557,18 +574,31 @@ _.extend u.l,
           # l.label = osmLocation.label
           # l.tokens = osmLocation.tokens
         # callback l
-      u.l.addName l, callback
+      # 0-4 Greece; 5 Athens Prefecture, Greece; 6-7 Athens, Municipality of
+      # Athens, Central section of Athens, Athens Prefecture, 11635, Greece;
+      # 8-9 Central section of Athens, Athens Prefecture, Greece; 10-11 Athens,
+      # Municipality of Athens, Central section of Athens, Athens Prefecture,
+      # Greece; 12 Kaisariani, Municipality of Kaisariani, Central section of Athens,
+      # Athens Prefecture, Greece; 14 Pagkrati, Athens, Municipality of Athens,
+      # Central section of Athens, Athens Prefecture, 11635, Greece; 16 Frynis,
+      # Pagkrati, Athens, Municipality of Athens, Central section of Athens,
+      # Athens Prefecture, 11635, Greece; 18
+      # \u03a0\u039b.\u03a0\u0391\u0393\u039a\u03a1\u0391\u03a4\u0399\u039f\u03a5,
+      # Frynis, Pagkrati, Athens, Municipality of Athens, Central section of
+      # Athens, Athens Prefecture, 11635, Greece; = ΠΛ.ΠΑΓΚΡΑΤΙΟΥ, Frynis,
+      # Pagkrati, Athens, Municipality of Athens, Central section of Athens,
+      # Athens Prefecture, 11635, Greece
+      u.l.addName l, undefined , callback
     logm 'u.l.createFromJavascriptApi', l
 
-  addName: (location, zoom=8, callback) ->
-    if _.isFunction zoom then [zoom, callback] = [8, zoom]
+  addName: (location, zoom, callback) ->
+    if _.isFunction zoom then [zoom, callback] = [undefined, zoom]
     check callback, Function
-    # match leaflet.zoom with OSM zoom, usually too detailed
-    zoom = Math.max 0, zoom-(if zoom > 7 then 3 else 2)
+    zoom ?= if l.distance? then (1-l.distance/100000)*18 else 8
     # 6..9 give very funny results for Berlin
     # http://nominatim.openstreetmap.org/reverse?format=json&lat=52.546713&lon=13.455849&zoom=8&addressdetails=0
-    if 5 < zoom < 8 then zoom = 5
-    if 7 < zoom < 10 then zoom = 10
+    if 6 <= zoom <= 9 then (zoom = if zoom < 8 then 5 else 10)
+    zoom = Math.round u.between zoom, 0, 18
     u.x.osm.reverse location.lat, location.lng, zoom, (data) ->
       if data?
         osmLocation = u.l.createFromOsmData data
@@ -648,7 +678,10 @@ _.extend u.l,
 
   # Copyright 2010, Silvio Heuberger @ IFS www.ifs.hsr.ch
   distanceInMeters: (lat1, lng1, lat2, lng2) ->
-    if _.isFunction lat1?.getNorth
+    if lat1?.lat? and lng1?.lat?
+      [lat2, lng2] = [lng1.lat, lng1.lng]
+      [lat1, lng1] = [lat1.lat, lat1.lng]
+    else if _.isFunction lat1?.getNorth
       lng1 = lat1.getWest()
       lat2 = lat1.getSouth()
       lng2 = lat1.getEast()
@@ -740,7 +773,8 @@ _.extend u.x,
       # if (data = u.x.osm._getFirstLocation(data))? then callback u.l.createFromOsmData data
       callback u.x.osm._getFirstLocation data
 
-  currentLocation: (callback, useBrowserLocation = true) ->
+  currentLocation: (callback = u.cb, useBrowserLocation = true) ->
+    if _.isBoolean callback then [callback, useBrowserLocation] = [useBrowserLocation, callback]
     if Modernizr.geolocation and useBrowserLocation
       # PositionError {message: "User denied Geolocation", code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3}
       navigator.geolocation.getCurrentPosition (geoData) ->
@@ -749,7 +783,7 @@ _.extend u.x,
     else
       u.x.geoip (data) ->
         if data?.country_name?
-          u.x.osm.find { country: data.country_name, limit: 1, addressdetails: 0 }, (data) ->
+          u.x.osm.find { country: data.country_name, limit: 1, addressdetails: 0, zoom: 0 }, (data) ->
             # convert osm data to location obj
             #if (data = data?[0])? and data?.boundingbox? and data?.display_name?
             if (data = data?[0])? and data?.display_name?
