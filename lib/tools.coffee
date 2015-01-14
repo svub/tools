@@ -15,8 +15,12 @@ _s.hash ?= u.stringHash # using md5 algo
 _s.match ?= (string1, string2, similarity=.75) -> (1-_.levenshtein(string1, string2)/Math.max(string1?.length, string2?.length)) >= similarity
 _s.startsWithI = (string, part) ->
   _s.startsWith string?.toLowerCase(), part?.toLowerCase()
+_.partition ?= (array, predicate) -> # first matching, second others
+  first = _.filter array, (item) -> predicate item
+  second = _.filter array, (item) -> not predicate item
+  [first, second]
 
-Array.prototype.clone = -> @slice 0
+#Array.prototype.clone = -> @slice 0
 Array.prototype.chop = (partSize) ->
   array = @clone()
   (array.splice 0, partSize until array.length <= 0)
@@ -37,7 +41,9 @@ Array.prototype.pushAll = (array) ->
 #    array
 
 u.addCommonMethods = (object, collection, defaultRoute, getLabel) -> _.extend object,
-  get: (id) -> if _.isString id then collection.findOne { _id: id } else id
+  get: (id) ->
+    if _.isNumber id then id = "#{id}"
+    if _.isString id then collection.findOne { _id: id } else id
   findAll: (ids) ->
     try
       if collection.findAll? then collection.findAll ids
@@ -83,7 +89,7 @@ u.logr = @logr = (objs...) =>
     #if ("" + obj).toLowerCase().indexOf("error") >= 0 then console.trace()
   catch error
     console.log "error in logr:"
-    console.log error.stack
+    console.error error
   objs[0]
 u.logm = @logm = (msg, obj) =>
   return obj unless u._loggingEnabled()
@@ -122,13 +128,11 @@ u.loge = @loge = (e) =>
   try
     if e?
       if e.message?
-        if e.stack? then u.logr(u._getTimeStamp()+'Caught error: ' + e.message + "\n" + e.stack)
-        else u.logr(u._getTimeStamp()+'Caught error: ' + e.message)
-      else u.logr(u._getTimeStamp()+'Caught error: ' + e)
-    #else u.logr 'No error'
-  catch
-    # console.log 'Error while logging error'
-    # console.trace()
+        #if e.stack? then u.logr(u._getTimeStamp()+'Caught error: ' + e.message + "\n" + e.stack)
+        #else u.logr(u._getTimeStamp()+'Caught error: ' + e.message)
+        u.logr "#{u._getTimeStamp()}Caught error: #{e.message}"
+        console.error e
+      else u.logr "#{u._getTimeStamp()}Caught error: #{e}"
   e
 
 ### helpers ###########################################################################################################
@@ -332,8 +336,9 @@ u.setFormData = (form, data, silent = false) ->
 
 u.clone = (object) -> EJSON.parse EJSON.stringify object
 u.later = @later = (time, method) ->
-  if _.isFunction time then [time, method] = [1, time]
-  setTimeout method, time
+  if _.isFunction time then [time, method] = [(u.rif _.isNumber, method, 1), time] # TODO default time 0?
+  if _.isFunction method then Meteor.setTimeout method, time
+  else loge 'tools.later: did not pass function'
 # u.shorten = (string, maxLength) -> if string?.length > maxLength then string.substr(0, maxLength-3)+'...' else string
 # u.shorten = (string, maxLength) -> _s.prune string, maxLength # shorten at the end
 # padding in the middle, e.g. "Some rather extra...long string";
@@ -417,6 +422,10 @@ u.equal = u.equals = (obj1, obj2, fields) ->
       return false unless EJSON.equals obj1[field], obj2[field]
     true
 
+u.toggle = (array, item) ->
+  if item in array then _.without array, item
+  else _.union array, item
+
 u.session = (key, value) ->
   logt 'Do not use u.session any more!'
   if value?
@@ -444,9 +453,10 @@ _.extend u.l,
   maxCloseByRadius: 20000 # 20km
 
   trim: (location) -> if location?
-    location.lat = u.toFixed location.lat, 6
-    location.lng = u.toFixed location.lng, 6
-    location
+    _.extend location,
+      lat: u.toFixed location.lat, 6
+      lng: u.toFixed location.lng, 6
+      distance: Math.floor location.distance
 
   serialize: (location) ->
     if not location? or location is false then '_'
@@ -574,6 +584,13 @@ _.extend u.l,
           # l.label = osmLocation.label
           # l.tokens = osmLocation.tokens
         # callback l
+      u.l.addName l, 18 , callback
+    logm 'u.l.createFromJavascriptApi', l
+
+  addName: (location, zoom, callback) ->
+    if _.isFunction zoom then [zoom, callback] = [undefined, zoom]
+    check callback, Function
+      # zoom levels:
       # 0-4 Greece; 5 Athens Prefecture, Greece; 6-7 Athens, Municipality of
       # Athens, Central section of Athens, Athens Prefecture, 11635, Greece;
       # 8-9 Central section of Athens, Athens Prefecture, Greece; 10-11 Athens,
@@ -588,12 +605,6 @@ _.extend u.l,
       # Athens, Athens Prefecture, 11635, Greece; = ΠΛ.ΠΑΓΚΡΑΤΙΟΥ, Frynis,
       # Pagkrati, Athens, Municipality of Athens, Central section of Athens,
       # Athens Prefecture, 11635, Greece
-      u.l.addName l, undefined , callback
-    logm 'u.l.createFromJavascriptApi', l
-
-  addName: (location, zoom, callback) ->
-    if _.isFunction zoom then [zoom, callback] = [undefined, zoom]
-    check callback, Function
     zoom ?= if l.distance? then (1-l.distance/100000)*18 else 8
     # 6..9 give very funny results for Berlin
     # http://nominatim.openstreetmap.org/reverse?format=json&lat=52.546713&lon=13.455849&zoom=8&addressdetails=0

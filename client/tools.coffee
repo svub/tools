@@ -14,7 +14,7 @@ u.alert = (message, type = 'info', delay = 6000) ->
 
 u.alert.warn = u.alert.warning = (message, delay) ->
   u.alert message, 'warning', delay
-u.alert.error = (message, delay = 8000) -> u.alert message, 'danger', delay
+u.alert.error = u.alert.danger = (message, delay = 8000) -> u.alert message, 'danger', delay
 u.alert.success = (message, delay) -> u.alert message, 'success', delay
 u.alert.info = (message, delay) -> u.alert message, 'info', delay
 
@@ -57,22 +57,42 @@ u.offset = (element = document) ->
 
 u.showBelow = (element, container = document) ->
   e = $ element; c = $ container; co = c.offset()
-  u.keepCompletelyVisible e, 0, c.height(), c
+  x = 0
+  logr x = (c.outerWidth() - e.outerWidth()) / 2
+  u.keepCompletelyVisible e, x, c.height(), c
 
 u.keepCompletelyVisible = (element, x = 0, y, container = document, bounds = document) ->
   b = $ bounds; bo = u.offset b
-  c = $ container; co = c.offset(); cdx =
+  c = $ container; co = c.offset()
   e = $ element; w = e.outerWidth(); h = e.outerHeight(); y ?= co.top
 
+  #logmr 'keepCompletelyVisible: bo, co, x, y, w, h', bo, co, x, y, w, h
+  #logmr '#########', e.width()
+  #logmr '#########', e.outerWidth()
+  #later 1, -> logmr '#########1', e.outerWidth()
+  #later 10, -> logmr '#########2', e.outerWidth()
+  #later 100, -> logmr '#########3', e.outerWidth()
+  #later 1000, -> logmr '#########4', e.outerWidth() # only at 4 the outerWidth
+  #is correct, might be due to the animation
+  #later 10000, -> logmr '#########5', e.outerWidth()
+  #logmr '#########', e.outerWidth true
+  #logmr '#########', e.outerWidth true, true
   if (overflow = co.left + x + w - bo.right) > 0 then x -= overflow
+  #logmr '... right', x, overflow
   if (overflow = co.left + x) < 0 then x -= overflow
+  #logmr '... left', x, overflow
   if (overflow = co.top + y + h - bo.bottom) > 0 then y -= overflow
+  #logmr '... bottom', y, overflow
   if (overflow = co.top + y) < 0 then y -= overflow
+  #logmr '... top', y, overflow
 
   # if c.display:inline-block, e.left=0 does not place the element on the left side of c but on the left of the first letter in c, thus c delta x
-  e.css 'left', 0; cdx = co.left - e.offset().left
+  e.css 'left', 0
+  cdx = co.left - e.offset().left
+  #logmr '... cdx', cdx
   e.css 'left', cdx + x
   e.css 'top', y
+  #e.animate { left: cdx+x, top: y }, 50 will wait for other animations... dah!
 
 Meteor.callCached ?= (method, parameters...) ->
   # TODO JSON.stringify parameters and add to sessionKey?
