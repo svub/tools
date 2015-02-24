@@ -30,6 +30,7 @@ Package.on_use(function (api, where) {
   api.add_files('client/add-clear.js', 'client');
   api.add_files('client/fillText.less', 'client');
   api.add_files('client/tools.coffee', 'client');
+  api.add_files('client/responsive-var.coffee', 'client');
 
   //api.add_files('lib/tools/client/map.widget.html', 'client');
   //api.add_files('lib/tools/client/map.widget.less', 'client');

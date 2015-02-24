@@ -338,7 +338,7 @@ u.clone = (object) -> EJSON.parse EJSON.stringify object
 u.later = @later = (time, method) ->
   if _.isFunction time then [time, method] = [(u.rif _.isNumber, method, 1), time] # TODO default time 0?
   if _.isFunction method then Meteor.setTimeout method, time
-  else loge 'tools.later: did not pass function'
+  else logt 'tools.later: did not pass function'
 # u.shorten = (string, maxLength) -> if string?.length > maxLength then string.substr(0, maxLength-3)+'...' else string
 # u.shorten = (string, maxLength) -> _s.prune string, maxLength # shorten at the end
 # padding in the middle, e.g. "Some rather extra...long string";
@@ -356,6 +356,15 @@ u.shorten = (string, maxLength, middle=true, glue='...') ->
 
 u.toFixed = (number, decimalPlaces) ->
   parseFloat new Number(number).toFixed decimalPlaces
+u.dateDifference = (fromDate, toDate = moment(), asString = true, withPrefix = true) ->
+  format = (diff) ->
+    switch string = diff.humanize withPrefix
+      when 'a day ago' then 'yesterday'
+      when 'in a day' then 'tomorrow'
+      else string
+  diff = moment.duration moment(fromDate).diff moment toDate
+  if asString then format diff else diff
+
 #u.setValue = (object, path, value) -> if path? and object?
 #  if _.isString path then path = path.split('.').reverse()
 #  if path.length > 1 then u.setValue object[path.pop()] ?= {}, path, value
@@ -391,26 +400,26 @@ u.containsAny = u.intersects = (list, values) ->
 u.protectCollection = (collection, fieldsToCheck) ->
   if collection? and (fieldsToCheck = _.compact fieldsToCheck).length > 0
     name = collection._name
-    u.logmr "u.protectCollection #{name}: fieldsToCheck", fieldsToCheck
+    #u.logmr "u.protectCollection #{name}: fieldsToCheck", fieldsToCheck
     fieldRoots = {}
     for field in fieldsToCheck when (field.indexOf '.') >= 0
       fieldRoots[(field.split '.')[0]] = field
     roots = _.keys fieldRoots
-    u.logmr "u.protectCollection #{name}: fieldRoots", fieldRoots, roots
+    #u.logmr "u.protectCollection #{name}: fieldRoots", fieldRoots, roots
 
     collection.deny
       update: (userId, doc, fields, modifiers) =>
-        u.logmr "u.protectCollection #{name}: fields", fields
+        #u.logmr "u.protectCollection #{name}: fields", fields
         return u.logmr "u.protectCollection #{name}: updating denied", true if u.intersects fields, fieldsToCheck
         modSets = _.values modifiers
         for root in _.intersection fields, roots
           for modSet in modSets
             return u.logmr "u.protectCollection #{name}: updating #{fieldRoots[root]} denied", true if u.hasValue modSet, fieldRoots[root]
-        u.logmr "u.protectCollection #{name}: update denied", false
+        false
       insert: (userId, doc) =>
         for field in fieldsToCheck
           return u.logmr "u.protectCollection #{name}: insert denied", true if u.hasValue doc, field
-        u.logmr "u.protectCollection #{name}: insert denied", false
+        false
       fetch: []
 
 u.equal = u.equals = (obj1, obj2, fields) ->
@@ -440,6 +449,13 @@ u.sessionToggle = (key, initial = false) ->
 u.findAll = u.regex = u.extractAll = (exp, string) ->
   if _.isString exp then exp = new RegExp exp
   (r[1..] while (r = exp.exec string)?)
+
+u.serializeMap = (map) ->
+    if _.isString map then return map
+    kv = []
+    kv.push "#{key}=#{value}" for own key, value of map
+    kv.join '&'
+
 
 ### locations #########################################################################################################
 # location structure:
@@ -528,12 +544,18 @@ _.extend u.l,
     location = logm 'u.l.createFromPoint: location', u.l.create '<picked from map>', lat, lng, distance
     u.l.addName location, zoom, callback
 
-  createFromGeonamesData: (data) ->
-    bb = data?.bbox ? {}
-    label = (_.find data.alternateNames, (name) -> name.lang is u.getLang())?.name ? data.name
-    if (country = data?.countryName)? and label.indexOf country < 0 then label = "#{label}, #{country}"
+  createFromGeonamesData: (data) -> if data?
+    bb = (if data.east? then data else data.bbox) ? {}
+    name = data.name ? data.label
+    label = (_.find data.alternateNames, (name) -> name.lang is u.getLang())?.name ? name
+    country = data.countryName
+    city = data.adminName3
+    #if (country = data.countryName)? and label.indexOf(country) < 0 then label = "#{label}, #{country}"
+    if country? and label.indexOf(country) < 0
+      address = if name is city then country else "#{city}, #{country}"
     distance = (u.l.distanceInMeters bb.north, bb.east, bb.south, bb.west)/2
     l = u.l.create label, data.lat, data.lng, distance
+    l.address = address
     # l.tokens = u.removeAll(label, ',', ';').split(' ')
     logm 'u.l.createFromGeonamesData', l
 
@@ -560,7 +582,10 @@ _.extend u.l,
       data.lat = (bb[1]+bb[0])/2; data.lon = (bb[3]+bb[2])/2 # lat/lng is ofter far off the center, e.g. in Greece
       distance = (u.l.distanceInMeters bb[1], bb[3], bb[0], bb[2])/2.5 # with 2 the radius was too much somehow for Greece
     else distance = u.l.defaultRadius
-    l = u.l.create data.display_name, data.lat, data.lon, (if distance < u.l.minRadius then u.l.defaultRadius else distance)
+    addressParts = data.display_name?.split(', ') ? []
+    label = addressParts.shift()
+    l = u.l.create label, data.lat, data.lon, (if distance < u.l.minRadius then u.l.defaultRadius else distance)
+    l.address = addressParts.join ', '
     # l.tokens = u.removeAll(l.label, ',', ';')?.split(' ') ? []
     l # logm 'u.l.createFromOsmData', l
 
@@ -614,6 +639,7 @@ _.extend u.l,
       if data?
         osmLocation = u.l.createFromOsmData data
         location.label = u.l.sanitizeLabel osmLocation.label
+        location.address = u.l.sanitizeLabel osmLocation.address
       callback logmr 'u.l.addName: enhanced location', location
 
   labelBlackList: ['Central section of ', /,([^,]*)Prefecture/, /Municipality of ([^,]*), /, /, European Union$/]
