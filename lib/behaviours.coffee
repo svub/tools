@@ -16,11 +16,9 @@ CollectionBehaviours.defineBehaviour 'owned', (getTransform, args) ->
     doc.owner = userId unless isAdmin() and doc.owner?
     true
   @before.update (userId, doc, fieldNames, modifier, options) =>
-    if not isAdmin() then delete modifier?.$set?.owner
+    delete modifier?.$set?.owner unless isAdmin()
     true
   @allow
-    # update: (userId, doc, fields, modifier) -> (doc.owner is userId) or isAdmin()
-    # remove: (userId, doc) -> (doc.owner is userId) or isAdmin()
     insert: (userId, doc) => mineOrAdmin userId, doc
     update: (userId, doc) =>
       logm "#{@_name}.behaviour.owned.allow.update #{doc._id}", mineOrAdmin userId, doc
