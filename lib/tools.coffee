@@ -15,8 +15,12 @@ _s.hash ?= u.stringHash # using md5 algo
 _s.match ?= (string1, string2, similarity=.75) -> (1-_.levenshtein(string1, string2)/Math.max(string1?.length, string2?.length)) >= similarity
 _s.startsWithI = (string, part) ->
   _s.startsWith string?.toLowerCase(), part?.toLowerCase()
+_.partition ?= (array, predicate) -> # first matching, second others
+  first = _.filter array, (item) -> predicate item
+  second = _.filter array, (item) -> not predicate item
+  [first, second]
 
-Array.prototype.clone = -> @slice 0
+#Array.prototype.clone = -> @slice 0
 Array.prototype.chop = (partSize) ->
   array = @clone()
   (array.splice 0, partSize until array.length <= 0)
@@ -37,7 +41,9 @@ Array.prototype.pushAll = (array) ->
 #    array
 
 u.addCommonMethods = (object, collection, defaultRoute, getLabel) -> _.extend object,
-  get: (id) -> if _.isString id then collection.findOne { _id: id } else id
+  get: (id) ->
+    if _.isNumber id then id = "#{id}"
+    if _.isString id then collection.findOne { _id: id } else id
   findAll: (ids) ->
     try
       if collection.findAll? then collection.findAll ids
@@ -58,7 +64,8 @@ u.addCommonMethods = (object, collection, defaultRoute, getLabel) -> _.extend ob
 #u._loggingEnabled = -> Session?.get?('loggingEnabled') ? (Meteor?.isServer or window?.location?.href?.indexOf?('localhost')>=0)
 u._loggingEnabled = (enable) -> Deps.nonreactive ->
   if enable? then Session.set 'loggingEnabled', enable
-  Session?.get?('loggingEnabled') ? (Meteor?.isServer or (window?.location?.href?.indexOf?('localhost')>=0))
+  #Session?.get?('loggingEnabled') ? (Meteor?.isServer or (window?.location?.href?.indexOf?('localhost')>=0))
+  Session?.get?('loggingEnabled') ? (Meteor?.isServer or u.isDevelopment)
 u._logStartTime = moment()
 u._getTimeStamp = ->
   m = moment()
@@ -83,7 +90,7 @@ u.logr = @logr = (objs...) =>
     #if ("" + obj).toLowerCase().indexOf("error") >= 0 then console.trace()
   catch error
     console.log "error in logr:"
-    console.log error.stack
+    console.error error
   objs[0]
 u.logm = @logm = (msg, obj) =>
   return obj unless u._loggingEnabled()
@@ -122,13 +129,13 @@ u.loge = @loge = (e) =>
   try
     if e?
       if e.message?
-        if e.stack? then u.logr(u._getTimeStamp()+'Caught error: ' + e.message + "\n" + e.stack)
-        else u.logr(u._getTimeStamp()+'Caught error: ' + e.message)
-      else u.logr(u._getTimeStamp()+'Caught error: ' + e)
-    #else u.logr 'No error'
-  catch
-    # console.log 'Error while logging error'
-    # console.trace()
+        #if e.stack? then u.logr(u._getTimeStamp()+'Caught error: ' + e.message + "\n" + e.stack)
+        #else u.logr(u._getTimeStamp()+'Caught error: ' + e.message)
+        u.logr "#{u._gettimestamp()}caught error: #{e.message}"
+        console.error e
+      else
+        u.logr "#{u._gettimestamp()}caught error: #{e}"
+        console.trace()
   e
 
 ### helpers ###########################################################################################################
@@ -208,7 +215,7 @@ u.asBoolean = @asBoolean = (something, otherwise = false) ->
       else otherwise
 u.notEmpty = @notEmpty = (stringOrArray, toBeRemoved...) ->
   if (o = stringOrArray)?
-    if _.isString o then o = _.trim(o)
+    if _.isString o then o = _s.trim o
     if toBeRemoved? and toBeRemoved.length > 0 then o = u.removeAll o, _.flatten(toBeRemoved)
     #if o.length > 0 then o else null
     if u.hasText o then o
@@ -272,13 +279,13 @@ u.getFormData = (form, splitTextOnLineBreak = true) ->
 
     isText = tagName is 'TEXTAREA'
     # set data-split=true to split autmatically or false to avoid splitting
-    split = _.toBoolean data.split ? (splitTextOnLineBreak and isText)
+    split = u.asBoolean data.split, (splitTextOnLineBreak and isText)
     # remove duplicates from array, thus, works only with split rendering true
-    uniq = _.toBoolean data['remove-duplicates'] ? false
+    uniq = u.asBoolean data['remove-duplicates'], false
     # default true, remove blank lines in arrays or white space from beginning and end of strings
-    trim = _.toBoolean data.trim ? true
+    trim = u.asBoolean data.trim, true
     # default true, parse boolean values like yes, true, on and numbers
-    parse = _.toBoolean data.parse ? true
+    parse = u.asBoolean data.parse, true
 
     # conversions
     if split # or _.isArray formData[name] -- not automatic assumtions
@@ -286,7 +293,7 @@ u.getFormData = (form, splitTextOnLineBreak = true) ->
       if trim then value = _.without value, '%20', '', ' '
       if uniq then value = _.uniq value
     if _.isString value
-      value = _.trim value if trim
+      value = _s.trim value if trim
       # logmr typeof value, value
       if parse
         if value.toLowerCase() in ['yes', 'true', 'on'] then value = true
@@ -332,8 +339,9 @@ u.setFormData = (form, data, silent = false) ->
 
 u.clone = (object) -> EJSON.parse EJSON.stringify object
 u.later = @later = (time, method) ->
-  if _.isFunction time then [time, method] = [1, time]
-  setTimeout method, time
+  if _.isFunction time then [time, method] = [(u.rif _.isNumber, method, 1), time] # TODO default time 0?
+  if _.isFunction method then Meteor.setTimeout method, time
+  else logt 'tools.later: did not pass function'
 # u.shorten = (string, maxLength) -> if string?.length > maxLength then string.substr(0, maxLength-3)+'...' else string
 # u.shorten = (string, maxLength) -> _s.prune string, maxLength # shorten at the end
 # padding in the middle, e.g. "Some rather extra...long string";
@@ -351,6 +359,15 @@ u.shorten = (string, maxLength, middle=true, glue='...') ->
 
 u.toFixed = (number, decimalPlaces) ->
   parseFloat new Number(number).toFixed decimalPlaces
+u.dateDifference = (fromDate, toDate = moment(), asString = true, withPrefix = true) ->
+  format = (diff) ->
+    switch string = diff.humanize withPrefix
+      when 'a day ago' then 'yesterday'
+      when 'in a day' then 'tomorrow'
+      else string
+  diff = moment.duration moment(fromDate).diff moment toDate
+  if asString then format diff else diff
+
 #u.setValue = (object, path, value) -> if path? and object?
 #  if _.isString path then path = path.split('.').reverse()
 #  if path.length > 1 then u.setValue object[path.pop()] ?= {}, path, value
@@ -381,31 +398,39 @@ u.hasValue = (object, path) ->
 u.getValues = (path, objects...) ->
   (u.getValue object, path for object in _.flatten objects)
 
+u.check = (obj, pattern, msg) ->
+  try check.apply this, [obj, pattern]
+  catch e
+   logmr 'u.check failed for', obj
+   logmr '... message', (if _.isFunction msg then msg() else msg) if msg?
+   logme e
+   throw e
+
 u.containsAny = u.intersects = (list, values) ->
   (_.intersection list, values).length > 0
 u.protectCollection = (collection, fieldsToCheck) ->
   if collection? and (fieldsToCheck = _.compact fieldsToCheck).length > 0
     name = collection._name
-    u.logmr "u.protectCollection #{name}: fieldsToCheck", fieldsToCheck
+    #u.logmr "u.protectCollection #{name}: fieldsToCheck", fieldsToCheck
     fieldRoots = {}
     for field in fieldsToCheck when (field.indexOf '.') >= 0
       fieldRoots[(field.split '.')[0]] = field
     roots = _.keys fieldRoots
-    u.logmr "u.protectCollection #{name}: fieldRoots", fieldRoots, roots
+    #u.logmr "u.protectCollection #{name}: fieldRoots", fieldRoots, roots
 
     collection.deny
       update: (userId, doc, fields, modifiers) =>
-        u.logmr "u.protectCollection #{name}: fields", fields
+        #u.logmr "u.protectCollection #{name}: fields", fields
         return u.logmr "u.protectCollection #{name}: updating denied", true if u.intersects fields, fieldsToCheck
         modSets = _.values modifiers
         for root in _.intersection fields, roots
           for modSet in modSets
             return u.logmr "u.protectCollection #{name}: updating #{fieldRoots[root]} denied", true if u.hasValue modSet, fieldRoots[root]
-        u.logmr "u.protectCollection #{name}: update denied", false
+        false
       insert: (userId, doc) =>
         for field in fieldsToCheck
           return u.logmr "u.protectCollection #{name}: insert denied", true if u.hasValue doc, field
-        u.logmr "u.protectCollection #{name}: insert denied", false
+        false
       fetch: []
 
 u.equal = u.equals = (obj1, obj2, fields) ->
@@ -417,6 +442,10 @@ u.equal = u.equals = (obj1, obj2, fields) ->
       return false unless EJSON.equals obj1[field], obj2[field]
     true
 
+u.toggle = (array, item) ->
+  if item in array then _.without array, item
+  else _.union array, item
+
 u.session = (key, value) ->
   logt 'Do not use u.session any more!'
   if value?
@@ -427,10 +456,15 @@ u.sessionToggle = (key, initial = false) ->
   #u.session key, not ((u.session key) ? not initial)
   Session.set key, not ((Session.get key) ? not initial)
 
-
 u.findAll = u.regex = u.extractAll = (exp, string) ->
   if _.isString exp then exp = new RegExp exp
   (r[1..] while (r = exp.exec string)?)
+
+u.serializeMap = (map) ->
+    if _.isString map then return map
+    kv = []
+    kv.push "#{key}=#{value}" for own key, value of map
+    kv.join '&'
 
 ### locations #########################################################################################################
 # location structure:
@@ -444,9 +478,10 @@ _.extend u.l,
   maxCloseByRadius: 20000 # 20km
 
   trim: (location) -> if location?
-    location.lat = u.toFixed location.lat, 6
-    location.lng = u.toFixed location.lng, 6
-    location
+    _.extend location,
+      lat: u.toFixed location.lat, 6
+      lng: u.toFixed location.lng, 6
+      distance: Math.floor location.distance
 
   serialize: (location) ->
     if not location? or location is false then '_'
@@ -518,12 +553,17 @@ _.extend u.l,
     location = logm 'u.l.createFromPoint: location', u.l.create '<picked from map>', lat, lng, distance
     u.l.addName location, zoom, callback
 
-  createFromGeonamesData: (data) ->
-    bb = data?.bbox ? {}
-    label = (_.find data.alternateNames, (name) -> name.lang is u.getLang())?.name ? data.name
-    if (country = data?.countryName)? and label.indexOf country < 0 then label = "#{label}, #{country}"
+  createFromGeonamesData: (data) -> if data?
+    bb = (if data.east? then data else data.bbox) ? {}
+    name = data.name ? data.label
+    label = (_.find data.alternateNames, (name) -> name.lang is u.getLang())?.name ? name
+    country = data.countryName
+    city = data.adminName3
+    if country? and label.indexOf(country) < 0
+      address = if name is city then country else "#{city}, #{country}"
     distance = (u.l.distanceInMeters bb.north, bb.east, bb.south, bb.west)/2
     l = u.l.create label, data.lat, data.lng, distance
+    l.address = address
     # l.tokens = u.removeAll(label, ',', ';').split(' ')
     logm 'u.l.createFromGeonamesData', l
 
@@ -550,7 +590,10 @@ _.extend u.l,
       data.lat = (bb[1]+bb[0])/2; data.lon = (bb[3]+bb[2])/2 # lat/lng is ofter far off the center, e.g. in Greece
       distance = (u.l.distanceInMeters bb[1], bb[3], bb[0], bb[2])/2.5 # with 2 the radius was too much somehow for Greece
     else distance = u.l.defaultRadius
-    l = u.l.create data.display_name, data.lat, data.lon, (if distance < u.l.minRadius then u.l.defaultRadius else distance)
+    addressParts = data.display_name?.split(', ') ? []
+    label = addressParts.shift()
+    l = u.l.create label, data.lat, data.lon, (if distance < u.l.minRadius then u.l.defaultRadius else distance)
+    l.address = addressParts.join ', '
     # l.tokens = u.removeAll(l.label, ',', ';')?.split(' ') ? []
     l # logm 'u.l.createFromOsmData', l
 
@@ -574,6 +617,13 @@ _.extend u.l,
           # l.label = osmLocation.label
           # l.tokens = osmLocation.tokens
         # callback l
+      u.l.addName l, 18 , callback
+    logm 'u.l.createFromJavascriptApi', l
+
+  addName: (location, zoom, callback) ->
+    if _.isFunction zoom then [zoom, callback] = [undefined, zoom]
+    check callback, Function
+      # zoom levels:
       # 0-4 Greece; 5 Athens Prefecture, Greece; 6-7 Athens, Municipality of
       # Athens, Central section of Athens, Athens Prefecture, 11635, Greece;
       # 8-9 Central section of Athens, Athens Prefecture, Greece; 10-11 Athens,
@@ -588,12 +638,6 @@ _.extend u.l,
       # Athens, Athens Prefecture, 11635, Greece; = ΠΛ.ΠΑΓΚΡΑΤΙΟΥ, Frynis,
       # Pagkrati, Athens, Municipality of Athens, Central section of Athens,
       # Athens Prefecture, 11635, Greece
-      u.l.addName l, undefined , callback
-    logm 'u.l.createFromJavascriptApi', l
-
-  addName: (location, zoom, callback) ->
-    if _.isFunction zoom then [zoom, callback] = [undefined, zoom]
-    check callback, Function
     zoom ?= if l.distance? then (1-l.distance/100000)*18 else 8
     # 6..9 give very funny results for Berlin
     # http://nominatim.openstreetmap.org/reverse?format=json&lat=52.546713&lon=13.455849&zoom=8&addressdetails=0
@@ -603,6 +647,7 @@ _.extend u.l,
       if data?
         osmLocation = u.l.createFromOsmData data
         location.label = u.l.sanitizeLabel osmLocation.label
+        location.address = u.l.sanitizeLabel osmLocation.address
       callback logmr 'u.l.addName: enhanced location', location
 
   labelBlackList: ['Central section of ', /,([^,]*)Prefecture/, /Municipality of ([^,]*), /, /, European Union$/]

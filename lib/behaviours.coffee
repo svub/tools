@@ -59,16 +59,16 @@ CollectionBehaviours.defineBehaviour 'indexLocation', (getTransform, args) ->
     true
 
 #isAdmin = (uid) -> Roles? and Roles.userIsInRole uid, 'admin'
-CollectionBehaviours.defineBehaviour 'noDelete', (getTransform, args) ->
-  @allow crudAllow
-  @deny
-    remove: (userId, doc) =>
-      logm "#{@_name}.behaviour.noDelete.deny.remove uid=#{userId}, doc.id=#{doc._id}", not isAdmin userId
+#CollectionBehaviours.defineBehaviour 'noDelete', (getTransform, args) ->
+#  @allow crudAllow
+#  @deny
+#    remove: (userId, doc) =>
+#      logm "#{@_name}.behaviour.noDelete.deny.remove uid=#{userId}, doc.id=#{doc._id}", not isAdmin userId
 
 CollectionBehaviours.defineBehaviour 'loggedInOnly', (getTransform, args) ->
   isAdmin = -> Roles? and Roles.userIsInRole Meteor.user(), 'admin'
   @allow crudAllow
-  ifNotLoggedIn = (userId, doc) => logm "#{@_name}.behaviour.noDelete.deny uid=#{userId} on doc=#{doc?._id}", not userId?
+  ifNotLoggedIn = (userId, doc) => logm "#{@_name}.behaviour.loggedInOnly.deny uid=#{userId} on doc=#{doc?._id}", not userId?
   @deny insert: ifNotLoggedIn, update: ifNotLoggedIn, remove: ifNotLoggedIn
 
 CollectionBehaviours.defineBehaviour 'requiresRole', (getTransform, args) ->
